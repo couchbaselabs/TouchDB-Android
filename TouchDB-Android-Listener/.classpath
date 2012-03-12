@@ -4,6 +4,6 @@
 	<classpathentry kind="src" path="gen"/>
 	<classpathentry kind="con" path="com.android.ide.eclipse.adt.ANDROID_FRAMEWORK"/>
 	<classpathentry kind="con" path="com.android.ide.eclipse.adt.LIBRARIES"/>
-	<classpathentry kind="lib" path="libs/webserver.jar"/>
+	<classpathentry kind="lib" path="libs/webserver.jar" sourcepath="/Users/chrisk/tools/tjws-WebServer/src"/>
 	<classpathentry kind="output" path="bin/classes"/>
 </classpath>

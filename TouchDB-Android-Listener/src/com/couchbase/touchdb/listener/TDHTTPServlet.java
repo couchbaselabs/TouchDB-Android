@@ -17,7 +17,6 @@ import javax.servlet.http.HttpServletResponse;
 
 import android.util.Log;
 
-import com.couchbase.touchdb.TDDatabase;
 import com.couchbase.touchdb.TDServer;
 import com.couchbase.touchdb.router.TDRouter;
 import com.couchbase.touchdb.router.TDRouterCallbackBlock;
@@ -83,7 +82,7 @@ public class TDHTTPServlet extends HttpServlet {
 
         final ServletOutputStream os = response.getOutputStream();
         response.setBufferSize(128);
-        Log.v(TDDatabase.TAG, String.format("Buffer size is %d", response.getBufferSize()));
+        Log.v(TAG, "setBufferSize(128) for " + urlString);
 
         final CountDownLatch doneSignal = new CountDownLatch(1);
 
@@ -123,7 +122,8 @@ public class TDHTTPServlet extends HttpServlet {
             public void onDataAvailable(byte[] data) {
                 if(data != null) {
                     try {
-                        Log.v(TAG, String.format("Asked to write: %s", new String(data)));
+                        //Log.v(TAG, String.format("Asked to write: %s", new String(data)));
+                    	Log.v(TAG, "Data available for writing.");
                         os.write(data);
                         os.flush();
                         response.flushBuffer();
@@ -148,7 +148,7 @@ public class TDHTTPServlet extends HttpServlet {
         try {
             doneSignal.await();
         } catch (InterruptedException e) {
-            Log.e(TDDatabase.TAG, "Interrupted waiting for result", e);
+            Log.e(TAG, "Interrupted waiting for result", e);
         }
 
     }

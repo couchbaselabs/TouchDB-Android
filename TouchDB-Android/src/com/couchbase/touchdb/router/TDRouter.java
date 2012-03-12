@@ -163,6 +163,9 @@ public class TDRouter implements Observer {
         }
     }
 
+    /**
+     * Forcing TDNoBody to improve speed of do_GET_Attachments
+     */
     public EnumSet<TDContentOptions> getContentOptions() {
         EnumSet<TDContentOptions> result = EnumSet.noneOf(TDContentOptions.class);
         if(getBooleanQuery("attachments")) {
@@ -180,6 +183,9 @@ public class TDRouter implements Observer {
         if(getBooleanQuery("revs_info")) {
             result.add(TDContentOptions.TDIncludeRevsInfo);
         }
+        //if(getBooleanQuery("no_body")) {
+        	result.add(TDContentOptions.TDNoBody);
+        //}
         return result;
     }
 
@@ -364,7 +370,8 @@ public class TDRouter implements Observer {
         	}
         }
         
-        //Log.d(TAG, "path: " + path + " message: " + message + " docID: " + docID + " attachmentName: " + attachmentName);
+        Log.d(TAG, "path: " + path + " message: " + message);
+        Log.d(TAG, "docID: " + docID + " attachmentName: " + attachmentName);
 
         // Send myself a message based on the components:
         TDStatus status = new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
@@ -411,6 +418,7 @@ public class TDRouter implements Observer {
             if(callbackBlock != null && connection.getResponseBody() != null) {
                 callbackBlock.onDataAvailable(connection.getResponseBody().getJson());
             }
+            Log.v(TAG,"Data is ready for " + attachmentName);
             if(callbackBlock != null && !waiting) {
                 callbackBlock.onFinish();
             }
@@ -1014,19 +1022,26 @@ public class TDRouter implements Observer {
     	//OPT: This gets the JSON body too, which is a waste. Could add a kNoBody option?
     	EnumSet<TDContentOptions> options = getContentOptions();
     	String revID = getQuery("rev");  // often null
-    	TDRevision rev = db.getDocumentWithIDAndRev(docID, revID, options);
-    	if(rev == null) {
-    		return new TDStatus(TDStatus.NOT_FOUND);
-    	}
-    	if(cacheWithEtag(rev.getRevId())) {
-    		return new TDStatus(TDStatus.NOT_MODIFIED);  // set ETag and check conditional GET
-    	}
-
+    	Long sequence = null;
+        if(options.contains(TDContentOptions.TDNoBody)) {
+        	sequence = db.getDocumentSequenceWithIDAndRev(docID, revID, options);
+        } else {
+        	Log.d(TAG, "getDocumentWithIDAndRev start _attachmentName: " + _attachmentName);
+        	TDRevision rev = db.getDocumentWithIDAndRev(docID, revID, options);
+        	Log.d(TAG, "getDocumentWithIDAndRev stop _attachmentName: " + _attachmentName);
+        	if(rev == null) {
+        		return new TDStatus(TDStatus.NOT_FOUND);
+        	} else {
+        		sequence = rev.getSequence();
+        	}
+        	if(cacheWithEtag(rev.getRevId())) {
+        		return new TDStatus(TDStatus.NOT_MODIFIED);  // set ETag and check conditional GET
+        	}
+        }
     	String type = null;
     	TDStatus status = new TDStatus();
     	String acceptEncoding = connection.getRequestProperty("Accept-Encoding");
-    	TDAttachment contents = db.getAttachmentForSequence(rev.getSequence(), _attachmentName, status);
-    	
+    	TDAttachment contents = db.getAttachmentForSequence(sequence, _attachmentName, status);
     	if (contents == null) {
     		return new TDStatus(TDStatus.NOT_FOUND);
     	}

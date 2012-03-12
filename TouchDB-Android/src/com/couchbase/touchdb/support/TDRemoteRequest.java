@@ -34,6 +34,8 @@ public class TDRemoteRequest implements Runnable {
     private URL url;
     private Object body;
     private TDRemoteRequestCompletionBlock onCompletion;
+    public static final String TAG = "TDRemoteRequest";
+
 
     public TDRemoteRequest(HttpClientFactory clientFactory, String method, URL url, Object body, TDRemoteRequestCompletionBlock onCompletion) {
         this.clientFactory = clientFactory;
@@ -57,7 +59,7 @@ public class TDRemoteRequest implements Runnable {
 
     @Override
     public void run() {
-        Log.v(TDDatabase.TAG, String.format("%s: %s .%s", toString(), method, url.toExternalForm()));
+        Log.v(TAG, String.format("%s: %s .%s", toString(), method, url.toExternalForm()));
         HttpClient httpClient = clientFactory.getHttpClient();
         HttpUriRequest request = null;
         if(method.equalsIgnoreCase("GET")) {

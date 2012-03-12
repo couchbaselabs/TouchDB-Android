@@ -68,7 +68,7 @@ public class TDDatabase extends Observable {
      * Options for what metadata to include in document bodies
      */
     public enum TDContentOptions {
-        TDIncludeAttachments, TDIncludeConflicts, TDIncludeRevs, TDIncludeRevsInfo, TDIncludeLocalSeq
+        TDIncludeAttachments, TDIncludeConflicts, TDIncludeRevs, TDIncludeRevsInfo, TDIncludeLocalSeq, TDNoBody
     }
 
     private static final Set<String> KNOWN_SPECIAL_KEYS;
@@ -505,7 +505,7 @@ public class TDDatabase extends Observable {
         if(dict.size() == 0) {
             return json;
         }
-
+        Log.d(TAG, "appendDictToJSON start: ");
         ObjectMapper mapper = new ObjectMapper();
         byte[] extraJSON = null;
         try {
@@ -514,7 +514,7 @@ public class TDDatabase extends Observable {
             Log.e(TDDatabase.TAG, "Error convert extra JSON to bytes", e);
             return null;
         }
-
+        Log.d(TAG, "appendDictToJSON middle: ");
         int jsonLength = json.length;
         int extraLength = extraJSON.length;
         if(jsonLength == 2) { // Original JSON was empty
@@ -524,6 +524,7 @@ public class TDDatabase extends Observable {
         System.arraycopy(json, 0, newJson, 0, jsonLength - 1);  // Copy json w/o trailing '}'
         newJson[jsonLength - 1] = ',';  // Add a ','
         System.arraycopy(extraJSON, 1, newJson, jsonLength, extraLength - 1);
+        Log.d(TAG, "appendDictToJSON stop: ");
         return newJson;
     }
 
@@ -669,7 +670,9 @@ public class TDDatabase extends Observable {
                 byte[] json = cursor.getBlob(2);
                 result = new TDRevision(id, rev, deleted);
                 result.setSequence(cursor.getLong(3));
+                Log.d(TAG, "expandStoredJSONIntoRevisionWithAttachments start id: " + id);
                 expandStoredJSONIntoRevisionWithAttachments(json, result, contentOptions);
+                Log.d(TAG, "expandStoredJSONIntoRevisionWithAttachments stop id: " + id);
             }
         } catch (SQLException e) {
             Log.e(TDDatabase.TAG, "Error getting document with id and rev", e);
@@ -679,6 +682,35 @@ public class TDDatabase extends Observable {
             }
         }
         return result;
+    }
+    
+    public Long getDocumentSequenceWithIDAndRev(String id, String rev, EnumSet<TDContentOptions> contentOptions) {
+    	Long sequence = null;
+    	String sql;
+    	Cursor cursor = null;
+    	try {
+    		cursor = null;
+    		if(rev != null) {
+    			sql = "SELECT sequence FROM revs, docs WHERE docs.docid=? AND revs.doc_id=docs.doc_id AND revid=? LIMIT 1";
+    			String[] args = {id, rev};
+    			cursor = database.rawQuery(sql, args);
+    		}
+    		else {
+    			sql = "SELECT sequence FROM revs, docs WHERE docs.docid=? AND revs.doc_id=docs.doc_id and current=1 and deleted=0 ORDER BY revid DESC LIMIT 1";
+    			String[] args = {id};
+    			cursor = database.rawQuery(sql, args);
+    		}
+    		if(cursor.moveToFirst()) {
+    			sequence = cursor.getLong(0);
+    		}
+    	} catch (SQLException e) {
+    		Log.e(TDDatabase.TAG, "Error getting document with id and rev", e);
+    	} finally {
+    		if(cursor != null) {
+    			cursor.close();
+    		}
+    	}
+    	return sequence;
     }
 
     public boolean existsDocumentWithIDAndRev(String docId, String revId) {
