@@ -14,13 +14,16 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Observable;
 import java.util.Observer;
+import java.util.Set;
 
 import org.codehaus.jackson.map.ObjectMapper;
 
 import android.util.Log;
 
+import com.couchbase.touchdb.TDAttachment;
 import com.couchbase.touchdb.TDBody;
 import com.couchbase.touchdb.TDChangesOptions;
 import com.couchbase.touchdb.TDDatabase;
@@ -53,6 +56,8 @@ public class TDRouter implements Observer {
     private boolean waiting = false;
     private TDFilterBlock changesFilter;
     private boolean longpoll = false;
+    
+    public static final String TAG = "TDRouter";
 
     public static String getVersionString() {
         return TouchDBVersion.TouchDBVersionNumber;
@@ -158,6 +163,9 @@ public class TDRouter implements Observer {
         }
     }
 
+    /**
+     * Forcing TDNoBody to improve speed of do_GET_Attachments
+     */
     public EnumSet<TDContentOptions> getContentOptions() {
         EnumSet<TDContentOptions> result = EnumSet.noneOf(TDContentOptions.class);
         if(getBooleanQuery("attachments")) {
@@ -175,6 +183,9 @@ public class TDRouter implements Observer {
         if(getBooleanQuery("revs_info")) {
             result.add(TDContentOptions.TDIncludeRevsInfo);
         }
+        //if(getBooleanQuery("no_body")) {
+        	result.add(TDContentOptions.TDNoBody);
+        //}
         return result;
     }
 
@@ -331,19 +342,36 @@ public class TDRouter implements Observer {
                 }
             }
         }
-
+        
         String attachmentName = null;
         if(docID != null && pathLen > 2) {
-            message = message.replaceFirst("_Document", "_Attachment");
-            // Interpret attachment name:
-            attachmentName = path.get(2);
-            if(attachmentName.startsWith("_") && docID.startsWith("_design")) {
-                // Design-doc attribute like _info or _view
-                message = message.replaceFirst("_Attachment", "_DesignDocument");
-                docID = docID.substring(8); // strip the "_design/" prefix
-                attachmentName = pathLen > 3 ? path.get(3) : null;
-            }
+        	message = message.replaceFirst("_Document", "_Attachment");
+        	// Interpret attachment name:
+        	attachmentName = path.get(2);
+        	if(attachmentName.startsWith("_") && docID.startsWith("_design")) {
+        		// Design-doc attribute like _info or _view
+        		message = message.replaceFirst("_Attachment", "_DesignDocument");
+        		docID = docID.substring(8); // strip the "_design/" prefix
+        		attachmentName = pathLen > 3 ? path.get(3) : null;
+        	} else {
+        		if (pathLen > 3) {
+        			List<String> subList = path.subList(2, pathLen);
+        			StringBuilder sb = new StringBuilder();
+        			Iterator<String> iter = subList.iterator();
+        			while(iter.hasNext()) {
+        				sb.append(iter.next());
+        				if(iter.hasNext()) {
+        					//sb.append("%2F");
+        					sb.append("/");
+        				}
+        			}
+        			attachmentName = sb.toString();
+        		}
+        	}
         }
+        
+        Log.d(TAG, "path: " + path + " message: " + message);
+        Log.d(TAG, "docID: " + docID + " attachmentName: " + attachmentName);
 
         // Send myself a message based on the components:
         TDStatus status = new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
@@ -390,6 +418,7 @@ public class TDRouter implements Observer {
             if(callbackBlock != null && connection.getResponseBody() != null) {
                 callbackBlock.onDataAvailable(connection.getResponseBody().getJson());
             }
+            Log.v(TAG,"Data is ready for " + attachmentName);
             if(callbackBlock != null && !waiting) {
                 callbackBlock.onFinish();
             }
@@ -632,8 +661,57 @@ public class TDRouter implements Observer {
     }
 
     public TDStatus do_POST_Document_bulk_docs(TDDatabase _db, String _docID, String _attachmentName) {
-        //FIXME implement
-        throw new UnsupportedOperationException();
+    	Map<String,Object> bodyDict = getBodyAsDictionary();
+    	//Log.v(TAG, "bodyDict returned " + bodyDict);
+        if(bodyDict == null) {
+            return new TDStatus(TDStatus.BAD_REQUEST);
+        }
+        List<Map<String,Object>> docs = (List<Map<String, Object>>) bodyDict.get("docs");
+        
+        boolean allObj = false;
+        if(getQuery("all_or_nothing") == null || (getQuery("all_or_nothing") != null && (new Boolean(getQuery("all_or_nothing"))))) {
+        	allObj = true;
+        }
+        //   allowConflict If false, an error status 409 will be returned if the insertion would create a conflict, i.e. if the previous revision already has a child.
+        boolean allOrNothing = (allObj && allObj != false);
+        boolean noNewEdits = true;
+        if(getQuery("new_edits") == null || (getQuery("new_edits") != null && (new Boolean(getQuery("new_edits"))))) {
+        	noNewEdits = false;
+        }
+        boolean ok = false;
+        List<Map<String,Object>> results = new ArrayList<Map<String,Object>>();
+        for (Map<String, Object> doc : docs) {
+        	String docID = (String) doc.get("_id");
+        	TDRevision rev = null;
+            TDStatus status;
+            TDBody body = new TDBody(doc);
+            if (noNewEdits) {
+            	rev = new TDRevision(body);
+            	if(rev.getRevId() == null || rev.getDocId() == null || !rev.getDocId().equals(docID)) {
+            		status =  new TDStatus(TDStatus.BAD_REQUEST);
+                }
+            	List<String> history = TDDatabase.parseCouchDBRevisionHistory(body.getProperties());
+            	status = db.forceInsert(rev, history, null);
+                Log.d("Progress:", status.toString());
+            } else {
+            	Log.d("Update:", doc.toString());
+            	status = update(_db, docID, doc, false);
+            	if (doc.get("rev") != null) {
+                    rev = (TDRevision) doc.get("rev");
+                }
+            	Log.d("status:", status.toString());
+            }
+            Map<String, Object> result = new HashMap<String, Object>();
+            result.put("ok", true);
+            result.put("id", docID);
+            if (rev != null) {
+                result.put("rev", rev.getRevId());
+            }
+            results.add(result);
+		}
+        Log.d("results:", results.toString());
+        connection.setResponseBody(new TDBody(results));
+        return new TDStatus(TDStatus.CREATED);
     }
 
     public TDStatus do_POST_Document_revs_diff(TDDatabase _db, String _docID, String _attachmentName) {
@@ -864,6 +942,21 @@ public class TDRouter implements Observer {
                 rev = db.getLocalDocument(docID, revID);
             } else {
                 rev = db.getDocumentWithIDAndRev(docID, revID, options);
+                // Handle ?atts_since query by stubbing out older attachments:
+                //?atts_since parameter - value is a (URL-encoded) JSON array of one or more revision IDs. 
+                // The response will include the content of only those attachments that changed since the given revision(s). 
+                //(You can ask for this either in the default JSON or as multipart/related, as previously described.)
+                List<String> attsSince = (List<String>)getJSONQuery("atts_since");
+                if (attsSince != null) {
+                	List<String> ancestorList = db.findCommonAncestorOf(rev, attsSince);
+                	if (ancestorList.size() > 0) {
+                		String ancestorID = ancestorList.get(0);
+                		if (ancestorID != null) {
+                			int generation = TDRevision.generationFromRevID(ancestorID);
+                			db.stubOutAttachmentsIn(rev, generation + 1);
+                		}
+                	}
+                }
             }
             if(rev == null) {
                 return new TDStatus(TDStatus.NOT_FOUND);
@@ -925,8 +1018,44 @@ public class TDRouter implements Observer {
     }
 
     public TDStatus do_GET_Attachment(TDDatabase _db, String docID, String _attachmentName) {
-        //FIXME implement
-        throw new UnsupportedOperationException();
+    	// http://wiki.apache.org/couchdb/HTTP_Document_API#GET
+    	//OPT: This gets the JSON body too, which is a waste. Could add a kNoBody option?
+    	EnumSet<TDContentOptions> options = getContentOptions();
+    	String revID = getQuery("rev");  // often null
+    	Long sequence = null;
+        if(options.contains(TDContentOptions.TDNoBody)) {
+        	sequence = db.getDocumentSequenceWithIDAndRev(docID, revID, options);
+        } else {
+        	Log.d(TAG, "getDocumentWithIDAndRev start _attachmentName: " + _attachmentName);
+        	TDRevision rev = db.getDocumentWithIDAndRev(docID, revID, options);
+        	Log.d(TAG, "getDocumentWithIDAndRev stop _attachmentName: " + _attachmentName);
+        	if(rev == null) {
+        		return new TDStatus(TDStatus.NOT_FOUND);
+        	} else {
+        		sequence = rev.getSequence();
+        	}
+        	if(cacheWithEtag(rev.getRevId())) {
+        		return new TDStatus(TDStatus.NOT_MODIFIED);  // set ETag and check conditional GET
+        	}
+        }
+    	String type = null;
+    	TDStatus status = new TDStatus();
+    	String acceptEncoding = connection.getRequestProperty("Accept-Encoding");
+    	TDAttachment contents = db.getAttachmentForSequence(sequence, _attachmentName, status);
+    	if (contents == null) {
+    		return new TDStatus(TDStatus.NOT_FOUND);
+    	}
+    	type = contents.getContentType();
+    	if (type != null) {
+    		connection.getResHeader().add("Content-Type", type);
+    	}
+    	if (acceptEncoding != null && acceptEncoding.equals("gzip")) {
+    		connection.getResHeader().add("Content-Encoding", acceptEncoding);
+    	}
+    	TDBody body = new TDBody(contents.getData());
+    	
+    	connection.setResponseBody(body);
+        return new TDStatus(TDStatus.OK);
     }
 
     /**
@@ -984,7 +1113,10 @@ public class TDRouter implements Observer {
         TDBody body = new TDBody(bodyDict);
         TDStatus status = new TDStatus();
         TDRevision rev = update(_db, docID, body, deleting, false, status);
-
+        // needed for do_POST_Document_bulk_docs
+        if (bodyDict.get("rev") == null) {
+            bodyDict.put("rev", rev);
+        }
         if(status.isSuccessful()) {
             cacheWithEtag(rev.getRevId());  // set ETag
             if(!deleting) {
