@@ -529,7 +529,15 @@ public class TDRouter implements Observer {
                 return new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
             }
             if(push) {
-                ((TDPusher)repl).setCreateTarget(createTarget);
+                TDPusher pushRepl = (TDPusher)repl;
+                pushRepl.setCreateTarget(createTarget);
+                String filterName = (String)body.get("filter");
+                if(filterName != null) {
+                	TDFilterBlock filter = db.getFilterNamed(filterName);
+                	if (filter != null){
+                		pushRepl.setFilter(filter);
+                	}
+                }
             } else {
                 TDPuller pullRepl = (TDPuller)repl;
                 String filterName = (String)body.get("filter");
