@@ -72,7 +72,9 @@ public class TDBatcher<T> {
     public void flush() {
         synchronized(this) {
             if(inbox != null) {
-                handler.removeCallbacks(processNowRunnable);
+                if (handler != null) {
+                  handler.removeCallbacks(processNowRunnable);
+                }
                 processNow();
             }
         }
