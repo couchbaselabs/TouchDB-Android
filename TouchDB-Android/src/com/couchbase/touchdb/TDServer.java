@@ -73,7 +73,7 @@ public class TDServer {
 
     private String pathForName(String name) {
         /**
-         * Regex changed to handle all filename requirements.  Enforce legal characters and first character is lowercase.
+         * Regex changed to handle _all_ filename requirements. Enforce legal characters and first character is lowercase.
          */
         //if((name == null) || (name.length() == 0) || Pattern.matches(LEGAL_FILENAME_CHARACTERS, name) || !Character.isLowerCase(name.charAt(0))) {
         if((name == null) || (name.length() == 0) || Pattern.matches(LEGAL_FILENAME_CHARACTERS, name)) {
