@@ -40,7 +40,7 @@ public class TDServer {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     //public static final String LEGAL_CHARACTERS = "abcdefghijklmnopqrstuvwxyz0123456789_$()+-/";
-    public static final String LEGAL_FILENAME_CHARACTERS = "[^\\w\\d_$()/+-]*$";
+    public static final String LEGAL_FILENAME_CHARACTERS = "[^a-z0-9_$()/+-]*$";
     public static final String DATABASE_SUFFIX = ".touchdb";
 
     private File directory;
