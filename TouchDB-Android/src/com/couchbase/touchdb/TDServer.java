@@ -40,7 +40,13 @@ public class TDServer {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     //public static final String LEGAL_CHARACTERS = "abcdefghijklmnopqrstuvwxyz0123456789_$()+-/";
-    public static final String LEGAL_FILENAME_CHARACTERS = "[^\\w\\d_$()/+-]*$";
+    /**
+     * Regular expression ensures filename follows couchdb requirements.
+     * Only lowercase letters (a-z), digits (0-9), and any of the characters _, $, (, ), +, -,
+     * and / are allowed. Moreover, the database name must begin with a letter.
+     * from cloudant.com
+     */
+    public static final String LEGAL_FILENAME_CHARACTERS = "[^a-z]{1,}[^a-z0-9_$()/+-]*$";
     public static final String DATABASE_SUFFIX = ".touchdb";
 
     private File directory;
@@ -66,7 +72,11 @@ public class TDServer {
     }
 
     private String pathForName(String name) {
-        if((name == null) || (name.length() == 0) || Pattern.matches(LEGAL_FILENAME_CHARACTERS, name) || !Character.isLowerCase(name.charAt(0))) {
+        /**
+         * Regex changed to handle all filename requirements.  Enforce legal characters and first character is lowercase.
+         */
+        //if((name == null) || (name.length() == 0) || Pattern.matches(LEGAL_FILENAME_CHARACTERS, name) || !Character.isLowerCase(name.charAt(0))) {
+        if((name == null) || (name.length() == 0) || Pattern.matches(LEGAL_FILENAME_CHARACTERS, name)) {
             return null;
         }
         name = name.replace('/', ':');
