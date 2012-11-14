@@ -39,7 +39,8 @@ public class TDServer {
 
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    public static final String LEGAL_CHARACTERS = "abcdefghijklmnopqrstuvwxyz0123456789_$()+-/";
+    //public static final String LEGAL_CHARACTERS = "abcdefghijklmnopqrstuvwxyz0123456789_$()+-/";
+    public static final String LEGAL_FILENAME_CHARACTERS = "[\\w\\d_$/+-]";
     public static final String DATABASE_SUFFIX = ".touchdb";
 
     private File directory;
@@ -65,7 +66,7 @@ public class TDServer {
     }
 
     private String pathForName(String name) {
-        if((name == null) || (name.length() == 0) || Pattern.matches("^" + LEGAL_CHARACTERS, name) || !Character.isLowerCase(name.charAt(0))) {
+        if((name == null) || (name.length() == 0) || Pattern.matches("^" + LEGAL_FILENAME_CHARACTERS, name) || !Character.isLowerCase(name.charAt(0))) {
             return null;
         }
         name = name.replace('/', ':');
