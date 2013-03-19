@@ -28,6 +28,7 @@ import java.util.Map;
 public class TDRevision {
 
     private String docId;
+    public String path;
     private String revId;
     private boolean deleted;
     private TDBody body;

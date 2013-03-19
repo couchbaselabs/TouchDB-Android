@@ -60,15 +60,17 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
             });
         }
         nextFakeSequence = maxInsertedFakeSequence = 0;
-        Log.w(TDDatabase.TAG, this + " starting ChangeTracker with since=" + lastSequence);
-        changeTracker = new TDChangeTracker(remote, continuous ? TDChangeTrackerMode.LongPoll : TDChangeTrackerMode.OneShot, lastSequence, this);
-        if(filterName != null) {
-            changeTracker.setFilterName(filterName);
-            if(filterParams != null) {
-                changeTracker.setFilterParams(filterParams);
-            }
+        if (this.continuous) {
+	        Log.w(TDDatabase.TAG, this + " starting ChangeTracker with since=" + lastSequence);
+	        changeTracker = new TDChangeTracker(remote, continuous ? TDChangeTrackerMode.LongPoll : TDChangeTrackerMode.OneShot, lastSequence, this);
+	        if(filterName != null) {
+	            changeTracker.setFilterName(filterName);
+	            if(filterParams != null) {
+	                changeTracker.setFilterParams(filterParams);
+	            }
+	        }
+	        changeTracker.start();
         }
-        changeTracker.start();
         asyncTaskStarted();
     }
 
@@ -226,7 +228,7 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
         // Construct a query. We want the revision history, and the bodies of attachments that have
         // been added since the latest revisions we have locally.
         // See: http://wiki.apache.org/couchdb/HTTP_Document_API#Getting_Attachments_With_a_Document
-        StringBuilder path = new StringBuilder("/" + URLEncoder.encode(rev.getDocId()) + "?rev=" + URLEncoder.encode(rev.getRevId()) + "&revs=true&attachments=true");
+        StringBuilder path = new StringBuilder("/" + URLEncoder.encode(rev.getDocId()) + "?rev=" + URLEncoder.encode(rev.getRevId()) + "&revs=true&attachments=false");
         List<String> knownRevs = knownCurrentRevIDs(rev);
         if(knownRevs == null) {
             //this means something is wrong, possibly the replicator has shut down
@@ -234,10 +236,10 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
             --httpConnectionCount;
             return;
         }
-        if(knownRevs.size() > 0) {
-            path.append("&atts_since=");
-            path.append(joinQuotedEscaped(knownRevs));
-        }
+//        if(knownRevs.size() > 0) {
+//            path.append("&atts_since=");
+//            path.append(joinQuotedEscaped(knownRevs));
+//        }
 
         //create a final version of this variable for the log statement inside
         //FIXME find a way to avoid this
@@ -245,12 +247,13 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
         sendAsyncRequest("GET", pathInside, null, new TDRemoteRequestCompletionBlock() {
 
             @Override
-            public void onCompletion(Object result, Throwable e) {
+            public void onCompletion(Object result, String path, Throwable e) {
                 // OK, now we've got the response revision:
                 if(result != null) {
                     Map<String,Object> properties = (Map<String,Object>)result;
                     List<String> history = db.parseCouchDBRevisionHistory(properties);
                     if(history != null) {
+                    	rev.path = path;
                         rev.setProperties(properties);
                         // Add to batcher ... eventually it will be fed to -insertRevisions:.
                         List<Object> toInsert = new ArrayList<Object>();

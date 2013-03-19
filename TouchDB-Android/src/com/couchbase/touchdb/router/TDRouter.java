@@ -386,6 +386,7 @@ public class TDRouter implements Observer {
         // Send myself a message based on the components:
         TDStatus status = new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
         try {
+        	Log.i("TDROUTER", "invoking: "+message);
             Method m = this.getClass().getMethod(message, TDDatabase.class, String.class, String.class);
             status = (TDStatus)m.invoke(this, db, docID, attachmentName);
         } catch (NoSuchMethodException msme) {

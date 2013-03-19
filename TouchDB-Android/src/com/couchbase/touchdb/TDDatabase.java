@@ -22,6 +22,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -1589,42 +1590,28 @@ public class TDDatabase extends Observable {
 
             TDStatus status = new TDStatus();
             Map<String,Object> newAttach = (Map<String,Object>)newAttachments.get(name);
-            String newContentBase64 = (String)newAttach.get("data");
-            if(newContentBase64 != null) {
-                // New item contains data, so insert it. First decode the data:
-                byte[] newContents;
-                try {
-                    newContents = Base64.decode(newContentBase64);
-                } catch (IOException e) {
-                    Log.e(TDDatabase.TAG, "IOExeption parsing base64", e);
-                    return new TDStatus(TDStatus.BAD_REQUEST);
-                }
-                if(newContents == null) {
-                    return new TDStatus(TDStatus.BAD_REQUEST);
-                }
 
-                // Now determine the revpos, i.e. generation # this was added in. Usually this is
-                // implicit, but a rev being pulled in replication will have it set already.
-                int generation = rev.getGeneration();
-                assert(generation > 0);
-                Object revposObj = newAttach.get("revpos");
-                int revpos = generation;
-                if(revposObj != null && revposObj instanceof Integer) {
-                    revpos = ((Integer)revposObj).intValue();
-                }
-
-                if(revpos > generation) {
-                    return new TDStatus(TDStatus.BAD_REQUEST);
-                }
-
-                // Finally insert the attachment:
-                status = insertAttachmentForSequenceWithNameAndType(new ByteArrayInputStream(newContents), newSequence, name, (String)newAttach.get("content_type"), revpos);
+            // Now determine the revpos, i.e. generation # this was added in. Usually this is
+            // implicit, but a rev being pulled in replication will have it set already.
+            int generation = rev.getGeneration();
+            assert(generation > 0);
+            Object revposObj = newAttach.get("revpos");
+            int revpos = generation;
+            if(revposObj != null && revposObj instanceof Integer) {
+                revpos = ((Integer)revposObj).intValue();
             }
-            else {
-                // It's just a stub, so copy the previous revision's attachment entry:
-                //? Should I enforce that the type and digest (if any) match?
-                status = copyAttachmentNamedFromSequenceToSequence(name, parentSequence, newSequence);
+
+            if(revpos > generation) {
+                return new TDStatus(TDStatus.BAD_REQUEST);
             }
+
+            URLConnection attachmentCon;
+            try {
+            	attachmentCon = new URL(rev.path+'/'+name).openConnection();
+           
+            	// Finally insert the attachment:
+            	status = insertAttachmentForSequenceWithNameAndType(attachmentCon.getInputStream(), newSequence, name, (String)newAttach.get("content_type"), revpos);
+            } catch (Exception e) {new TDStatus(TDStatus.BAD_REQUEST);}
             if(!status.isSuccessful()) {
                 return status;
             }
