@@ -105,9 +105,7 @@ public abstract class TDReplicator extends Observable {
     }
 
     public String toString() {
-        String maskedRemoteWithoutCredentials = (remote != null ? remote.toExternalForm() : "");
-        maskedRemoteWithoutCredentials = maskedRemoteWithoutCredentials.replaceAll("://.*:.*@","://---:---@");
-        String name = getClass().getSimpleName() + "[" + maskedRemoteWithoutCredentials + "]";
+        String name = getClass().getSimpleName() + "[" + (remote != null ? remote.toExternalForm() : "") + "]";
         return name;
     }
 
@@ -264,7 +262,7 @@ public abstract class TDReplicator extends Observable {
         sendAsyncRequest("GET", "/_local/" + remoteCheckpointDocID(), null, new TDRemoteRequestCompletionBlock() {
 
             @Override
-            public void onCompletion(Object result, Throwable e) {
+            public void onCompletion(Object result, String path, Throwable e) {
                 if(e != null && e instanceof HttpResponseException && ((HttpResponseException)e).getStatusCode() != 404) {
                     error = e;
                 } else {
@@ -320,7 +318,7 @@ public abstract class TDReplicator extends Observable {
         sendAsyncRequest("PUT", "/_local/" + remoteCheckpointDocID, body, new TDRemoteRequestCompletionBlock() {
 
             @Override
-            public void onCompletion(Object result, Throwable e) {
+            public void onCompletion(Object result, String path, Throwable e) {
             	savingCheckpoint = false;
                 if(e != null) {
                     Log.v(TDDatabase.TAG, this + ": Unable to save remote checkpoint", e);

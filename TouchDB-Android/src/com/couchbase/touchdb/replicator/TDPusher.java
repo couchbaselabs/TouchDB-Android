@@ -59,7 +59,7 @@ public class TDPusher extends TDReplicator implements Observer {
         sendAsyncRequest("PUT", "", null, new TDRemoteRequestCompletionBlock() {
 
             @Override
-            public void onCompletion(Object result, Throwable e) {
+            public void onCompletion(Object result, String path, Throwable e) {
                 if(e != null && e instanceof HttpResponseException && ((HttpResponseException)e).getStatusCode() != 412) {
                     Log.e(TDDatabase.TAG, "Failed to create remote db", e);
                     error = e;
@@ -159,7 +159,7 @@ public class TDPusher extends TDReplicator implements Observer {
         sendAsyncRequest("POST", "/_revs_diff", diffs, new TDRemoteRequestCompletionBlock() {
 
             @Override
-            public void onCompletion(Object response, Throwable e) {
+            public void onCompletion(Object response, String path, Throwable e) {
                 Map<String,Object> results = (Map<String,Object>)response;
                 if(e != null) {
                     error = e;
@@ -214,7 +214,7 @@ public class TDPusher extends TDReplicator implements Observer {
                     sendAsyncRequest("POST", "/_bulk_docs", bulkDocsBody, new TDRemoteRequestCompletionBlock() {
 
                         @Override
-                        public void onCompletion(Object result, Throwable e) {
+                        public void onCompletion(Object result, String path, Throwable e) {
                             if(e != null) {
                                 error = e;
                             } else {
