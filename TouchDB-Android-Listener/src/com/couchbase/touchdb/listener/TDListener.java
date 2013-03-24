@@ -12,7 +12,6 @@ public class TDListener implements Runnable {
     private Handler handler;
     private HandlerThread handlerThread;
     private Thread thread;
-    private TDServer server;
     private TDHTTPServer httpServer;
 
     //static inializer to ensure that touchdb:// URLs are handled properly
@@ -21,7 +20,6 @@ public class TDListener implements Runnable {
     }
 
     public TDListener(TDServer server, int port) {
-        this.server = server;
         this.httpServer = new TDHTTPServer();
         this.httpServer.setServer(server);
         this.httpServer.setListener(this);

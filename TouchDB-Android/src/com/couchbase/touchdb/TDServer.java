@@ -31,6 +31,7 @@ import java.util.regex.Pattern;
 import org.codehaus.jackson.map.ObjectMapper;
 
 import com.couchbase.touchdb.support.HttpClientFactory;
+import com.couchbase.touchdb.support.ReplicationCallback;
 
 /**
  * Manages a directory containing TDDatabases.
@@ -39,8 +40,9 @@ public class TDServer {
 
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    public static final String LEGAL_CHARACTERS = "[^a-z]{1,}[^a-z0-9_$()/+-]*$";
+    public static final String LEGAL_CHARACTERS = "abcdefghijklmnopqrstuvwxyz0123456789_$()+-/";
     public static final String DATABASE_SUFFIX = ".touchdb";
+    private ReplicationCallback callback;
 
     private File directory;
     private Map<String, TDDatabase> databases;
@@ -49,6 +51,14 @@ public class TDServer {
 
     public static ObjectMapper getObjectMapper() {
         return mapper;
+    }
+    
+    public void setReplicationCallback(ReplicationCallback cb) {
+    	callback = cb;
+    }
+    
+    public ReplicationCallback getReplicationCallback() {
+    	return callback;
     }
 
     public TDServer(String directoryName) throws IOException {
@@ -65,7 +75,7 @@ public class TDServer {
     }
 
     private String pathForName(String name) {
-        if((name == null) || (name.length() == 0) || Pattern.matches(LEGAL_CHARACTERS, name)) {
+        if((name == null) || (name.length() == 0) || Pattern.matches("^" + LEGAL_CHARACTERS, name) || !Character.isLowerCase(name.charAt(0))) {
             return null;
         }
         name = name.replace('/', ':');

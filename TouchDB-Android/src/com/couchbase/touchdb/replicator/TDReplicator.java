@@ -19,6 +19,7 @@ import com.couchbase.touchdb.TDMisc;
 import com.couchbase.touchdb.TDRevision;
 import com.couchbase.touchdb.TDRevisionList;
 import com.couchbase.touchdb.support.HttpClientFactory;
+import com.couchbase.touchdb.support.ReplicationCallback;
 import com.couchbase.touchdb.support.TDBatchProcessor;
 import com.couchbase.touchdb.support.TDBatcher;
 import com.couchbase.touchdb.support.TDRemoteRequest;
@@ -47,21 +48,25 @@ public abstract class TDReplicator extends Observable {
     private int changesTotal;
     protected final HttpClientFactory clientFacotry;
     protected String filterName;
+    protected int timeout;
     protected Map<String,Object> filterParams;
+    protected ReplicationCallback callback;
 
     protected static final int PROCESSOR_DELAY = 500;
     protected static final int INBOX_CAPACITY = 100;
 
-    public TDReplicator(TDDatabase db, URL remote, boolean continuous) {
-        this(db, remote, continuous, null);
+    public TDReplicator(TDDatabase db, URL remote, boolean continuous, int timeout, ReplicationCallback cb) {
+        this(db, remote, continuous, timeout, cb, null);
     }
 
-    public TDReplicator(TDDatabase db, URL remote, boolean continuous, HttpClientFactory clientFacotry) {
+    public TDReplicator(TDDatabase db, URL remote, boolean continuous, int timeout, ReplicationCallback cb, HttpClientFactory clientFacotry) {
 
         this.db = db;
         this.remote = remote;
         this.continuous = continuous;
+        this.timeout = timeout;
         this.handler = db.getHandler();
+        this.callback = cb;
 
 
         batcher = new TDBatcher<TDRevision>(db.getHandler(), INBOX_CAPACITY, PROCESSOR_DELAY, new TDBatchProcessor<TDRevision>() {
@@ -105,9 +110,7 @@ public abstract class TDReplicator extends Observable {
     }
 
     public String toString() {
-        String maskedRemoteWithoutCredentials = (remote != null ? remote.toExternalForm() : "");
-        maskedRemoteWithoutCredentials = maskedRemoteWithoutCredentials.replaceAll("://.*:.*@","://---:---@");
-        String name = getClass().getSimpleName() + "[" + maskedRemoteWithoutCredentials + "]";
+        String name = getClass().getSimpleName() + "[" + (remote != null ? remote.toExternalForm() : "") + "]";
         return name;
     }
 
@@ -264,7 +267,7 @@ public abstract class TDReplicator extends Observable {
         sendAsyncRequest("GET", "/_local/" + remoteCheckpointDocID(), null, new TDRemoteRequestCompletionBlock() {
 
             @Override
-            public void onCompletion(Object result, Throwable e) {
+            public void onCompletion(Object result, String path, Throwable e) {
                 if(e != null && e instanceof HttpResponseException && ((HttpResponseException)e).getStatusCode() != 404) {
                     error = e;
                 } else {
@@ -320,7 +323,7 @@ public abstract class TDReplicator extends Observable {
         sendAsyncRequest("PUT", "/_local/" + remoteCheckpointDocID, body, new TDRemoteRequestCompletionBlock() {
 
             @Override
-            public void onCompletion(Object result, Throwable e) {
+            public void onCompletion(Object result, String path, Throwable e) {
             	savingCheckpoint = false;
                 if(e != null) {
                     Log.v(TDDatabase.TAG, this + ": Unable to save remote checkpoint", e);

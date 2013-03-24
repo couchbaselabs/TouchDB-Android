@@ -41,8 +41,6 @@ public class TDHTTPServlet extends HttpServlet {
     public void service(HttpServletRequest request, final HttpServletResponse response)
             throws ServletException, IOException {
 
-
-
         //set path
         String urlString = request.getRequestURI();
         String queryString = request.getQueryString();
@@ -115,12 +113,15 @@ public class TDHTTPServlet extends HttpServlet {
             int r;
             while ((r = responseInputStream.read(buffer)) > 0) {
                 os.write(buffer, 0, r);
-                os.flush();
-                response.flushBuffer();
+                //os.flush();
+                //response.flushBuffer();
             }
+            os.flush();
+            response.flushBuffer();
             os.close();
-        } catch (InterruptedException e) {
+        } catch (Exception e) {
             Log.e(TDDatabase.TAG, "Interrupted waiting for result", e);
+            e.printStackTrace();
         } finally {
             if(router != null) {
                 router.stop();
