@@ -1,12 +1,65 @@
 # TouchDB-Android #
 
-by Marty Schoch (marty@couchbase.com)
 
-**TouchDB-Android** is the Android port of <a href="https://github.com/couchbaselabs/TouchDB-iOS">TouchDB</a> by Jens Alfke (jens@couchbase.com).  For information on the high-level goals of the project see the <a href="https://github.com/couchbaselabs/TouchDB-iOS/blob/master/README.md">iOS README</a>.  This document will limit itself to Android specific issues and deviations from the iOS version.
+## Status
+- this is a fork from https://github.com/couchbaselabs/TouchDB-Android
+- I am willing to receive issues, whishes, etc. and will try to incorporate them
+- See the include Android project "MediaLib" as a usage example
 
-## Current Status
-- Ported core functionality present in TouchDB-iOS as of Jan 22.
-- Unit tests pass
+## Improvements
+- added support for large attachments, as they crashed the version from above
+- added callback mechanism for replication. This works as follows:
+
+set a "ReplicationCallback" on your "TDServer" instance
+
+```Java
+server.setReplicationCallback(new ReplicationCallback() {
+    @Override
+    public void onTimeout() {
+        // do something
+    }
+});
+```
+
+set continious mode on your "ReplicationCommand" and specify timeout != -1
+
+```Java
+ReplicationCommand replicationCommand;
+        replicationCommand = new ReplicationCommand.Builder()
+                .target(database)
+                .source(serverURL+"/"+database)
+                .continuous(true)
+                .timeout(10000)
+                .build();
+});
+```
+If no changes are received in the changes tracker for the specified amount of time,
+the timeout callback will be invoked. You can use that to start a replication and 
+receive a notification, once it is complete.
+
+
+## Sample Activity for MediaLib
+```Java
+public class MainActivity extends Activity {
+    private MediaWebView webView;
+    private MediaServer mediaServer;
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        File filesDir = new File(Environment.getExternalStorageDirectory(), "sample");
+        
+        mediaServer = new MediaServer(8888, filesDir.getAbsolutePath());
+        mediaServer.start();
+        mediaServer.replicate("http://your.domain:5984", "yourdb", true);
+        webView = new MediaWebView(MainActivity.this, "http://0.0.0.0:8888/yourdb/_design/home/index.html", mediaServer);
+        
+        setContentView(webView);
+        webView.loadUrl("http://0.0.0.0:8888/yourdb/_design/yourdoc/index.html");
+    }
+
+}
+```
 
 ## Requirements
 - Android 2.2 or newer
@@ -24,4 +77,3 @@ by Marty Schoch (marty@couchbase.com)
 ## Getting Started using TouchDB-Android
 
 See the Wiki:  https://github.com/couchbaselabs/TouchDB-Android/wiki
-
