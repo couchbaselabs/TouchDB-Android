@@ -51,11 +51,16 @@ public class MainActivity extends Activity {
         
         mediaServer = new MediaServer(8888, filesDir.getAbsolutePath());
         mediaServer.start();
-        mediaServer.replicate("http://your.domain:5984", "yourdb", true);
+        mediaServer.replicate("http://your.domain:5984", "yourdb"true, 5000, new ReplicationCallback() {
+            @Override
+        	public void onTimeout() {
+        		webView.loadUrl("http://0.0.0.0:8888/yourdb/_design/yourdoc/index.html");
+        	}
+        });
         webView = new MediaWebView(MainActivity.this, "http://0.0.0.0:8888/yourdb/_design/home/index.html", mediaServer);
         
         setContentView(webView);
-        webView.loadUrl("http://0.0.0.0:8888/yourdb/_design/yourdoc/index.html");
+        
     }
 
 }
