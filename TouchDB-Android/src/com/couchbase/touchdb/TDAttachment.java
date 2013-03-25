@@ -23,6 +23,7 @@ public class TDAttachment {
 
     private InputStream contentStream;
     private String contentType;
+    private int revPos;
 
     public TDAttachment() {
 
@@ -32,6 +33,11 @@ public class TDAttachment {
         this.contentStream = contentStream;
         this.contentType = contentType;
     }
+    
+    public TDAttachment(InputStream contentStream, String contentType, int revPos) {
+    	this(contentStream, contentType);
+    	this.revPos = revPos;
+    }
 
     public InputStream getContentStream() {
         return contentStream;
@@ -40,9 +46,17 @@ public class TDAttachment {
     public void setContentStream(InputStream contentStream) {
         this.contentStream = contentStream;
     }
+    
+    public int getRevPos() {
+    	return revPos;
+    }
 
     public String getContentType() {
         return contentType;
+    }
+    
+    public void setRevPos(int revPos) {
+    	this.revPos = revPos;
     }
 
     public void setContentType(String contentType) {

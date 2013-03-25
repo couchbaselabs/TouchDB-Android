@@ -386,6 +386,7 @@ public class TDRouter implements Observer {
         // Send myself a message based on the components:
         TDStatus status = new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
         try {
+        	Log.i("TDROUTER", "invoking: "+message);
             Method m = this.getClass().getMethod(message, TDDatabase.class, String.class, String.class);
             status = (TDStatus)m.invoke(this, db, docID, attachmentName);
         } catch (NoSuchMethodException msme) {
@@ -510,6 +511,7 @@ public class TDRouter implements Observer {
         boolean createTarget = (createTargetBoolean != null && createTargetBoolean.booleanValue());
         Boolean continuousBoolean = (Boolean)body.get("continuous");
         boolean continuous = (continuousBoolean != null && continuousBoolean.booleanValue());
+        Integer timeout = (Integer)body.get("timeout");
         Boolean cancelBoolean = (Boolean)body.get("cancel");
         boolean cancel = (cancelBoolean != null && cancelBoolean.booleanValue());
 
@@ -550,7 +552,7 @@ public class TDRouter implements Observer {
 
         if(!cancel) {
             // Start replication:
-            TDReplicator repl = db.getReplicator(remote, server.getDefaultHttpClientFactory(), push, continuous, server.getWorkExecutor());
+            TDReplicator repl = db.getReplicator(remote, server.getDefaultHttpClientFactory(), push, continuous, timeout == null ? -1 : timeout.intValue(), server.getReplicationCallback(), server.getWorkExecutor());
             if(repl == null) {
                 return new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
             }
@@ -1162,7 +1164,7 @@ public class TDRouter implements Observer {
     	String type = null;
     	TDStatus status = new TDStatus();
     	String acceptEncoding = connection.getRequestProperty("Accept-Encoding");
-    	TDAttachment contents = db.getAttachmentForSequence(rev.getSequence(), _attachmentName, status);
+    	TDAttachment contents = db.getAttachmentForDocument(rev.getDocId(), _attachmentName, status);
 
     	if (contents == null) {
     		return new TDStatus(TDStatus.NOT_FOUND);

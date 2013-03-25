@@ -174,8 +174,8 @@ public class TDRemoteRequest implements Runnable {
                 @Override
                 public void run() {
                     try {
-                        onCompletion.onCompletion(result, error);
-                    } catch (Exception e) {
+                        onCompletion.onCompletion(result, url.toString().split("\\?")[0], error);
+                    } catch(Exception e) {
                         // don't let this crash the thread
                         Log.e(TDDatabase.TAG,
                                 "TDRemoteRequestCompletionBlock throw Exception",

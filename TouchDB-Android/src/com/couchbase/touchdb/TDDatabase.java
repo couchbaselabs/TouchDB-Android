@@ -17,11 +17,11 @@
 
 package com.couchbase.touchdb;
 
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -46,6 +46,8 @@ import com.couchbase.touchdb.replicator.TDReplicator;
 import com.couchbase.touchdb.support.Base64;
 import com.couchbase.touchdb.support.FileDirUtils;
 import com.couchbase.touchdb.support.HttpClientFactory;
+import com.couchbase.touchdb.support.ReplicationCallback;
+import com.couchbase.touchdb.support.TDDatabaseListenerCallback;
 
 /**
  * A TouchDB database.
@@ -58,6 +60,7 @@ public class TDDatabase extends Observable {
     private boolean open = false;
     private int transactionLevel = 0;
     public static final String TAG = "TDDatabase";
+    private static List<TDDatabaseListenerCallback> mCallbacks = new ArrayList<TDDatabaseListenerCallback>();
 
     private Map<String, TDView> views;
     private Map<String, TDFilterBlock> filters;
@@ -121,12 +124,14 @@ public class TDDatabase extends Observable {
             "    CREATE INDEX maps_keys on maps(view_id, key COLLATE JSON); " +
             "    CREATE TABLE attachments ( " +
             "        sequence INTEGER NOT NULL REFERENCES revs(sequence) ON DELETE CASCADE, " +
+            "        docid TEXT NOT NULL, " +
             "        filename TEXT NOT NULL, " +
             "        key BLOB NOT NULL, " +
             "        type TEXT, " +
             "        length INTEGER NOT NULL, " +
             "        revpos INTEGER DEFAULT 0); " +
             "    CREATE INDEX attachments_by_sequence on attachments(sequence, filename); " +
+            "    CREATE INDEX attachments_by_docid on attachments(docid, filename); " +
             "    CREATE TABLE replicators ( " +
             "        remote TEXT NOT NULL, " +
             "        push BOOLEAN, " +
@@ -212,6 +217,10 @@ public class TDDatabase extends Observable {
         }
         return true;
     }
+    
+    public void addListener(String database, TDDatabaseListenerCallback callback) {
+    	mCallbacks.add(callback);
+    }
 
     public boolean open() {
         if(open) {
@@ -248,6 +257,7 @@ public class TDDatabase extends Observable {
             // (Note: Declaring revs.sequence as AUTOINCREMENT means the values will always be
             // monotonically increasing, never reused. See <http://www.sqlite.org/autoinc.html>)
             if(!initialize(SCHEMA)) {
+            	Log.w(TDDatabase.TAG, "TDDatabase: Database is not initialized");
                 database.close();
                 return false;
             }
@@ -259,6 +269,7 @@ public class TDDatabase extends Observable {
             String upgradeSql = "ALTER TABLE attachments ADD COLUMN revpos INTEGER DEFAULT 0; " +
                                 "PRAGMA user_version = 2";
             if(!initialize(upgradeSql)) {
+            	Log.w(TDDatabase.TAG, "TDDatabase: Could not update database from version 1 to 2");
                 database.close();
                 return false;
             }
@@ -273,6 +284,7 @@ public class TDDatabase extends Observable {
                     "CREATE INDEX localdocs_by_docid ON localdocs(docid); " +
                     "PRAGMA user_version = 3";
             if(!initialize(upgradeSql)) {
+            	Log.w(TDDatabase.TAG, "TDDatabase: Could not update database from version 2 to 3");
                 database.close();
                 return false;
             }
@@ -287,6 +299,7 @@ public class TDDatabase extends Observable {
                     "INSERT INTO INFO (key, value) VALUES ('publicUUID',  '" + TDMisc.TDCreateUUID() + "'); " +
                     "PRAGMA user_version = 4";
             if(!initialize(upgradeSql)) {
+            	Log.w(TDDatabase.TAG, "TDDatabase: Could not update database from version 3 to 4");
                 database.close();
                 return false;
             }
@@ -305,6 +318,7 @@ public class TDDatabase extends Observable {
     }
 
     public boolean close() {
+    	Log.i(TDDatabase.TAG, "Closing database");
         if(!open) {
             return false;
         }
@@ -1334,7 +1348,7 @@ public class TDDatabase extends Observable {
     /*** TDDatabase+Attachments                                                                    ***/
     /*************************************************************************************************/
 
-    public TDStatus insertAttachmentForSequenceWithNameAndType(InputStream contentStream, long sequence, String name, String contentType, int revpos) {
+    public TDStatus insertAttachmentForSequenceWithNameAndType(InputStream contentStream, long sequence, String docId, String name, String contentType, int revpos) {
         assert(sequence > 0);
         assert(name != null);
 
@@ -1347,6 +1361,7 @@ public class TDDatabase extends Observable {
         try {
             ContentValues args = new ContentValues();
             args.put("sequence", sequence);
+            args.put("docid", docId);
             args.put("filename", name);
             args.put("key", keyData);
             args.put("type", contentType);
@@ -1395,22 +1410,78 @@ public class TDDatabase extends Observable {
             }
         }
     }
+    
+    public String getAttachmentAsPathForDocument(String docId, String filename, TDStatus status) {
+    	Cursor cursor = null;
+    	String path;
+        String[] args = { docId, filename };
+        try {
+            cursor = database.rawQuery("SELECT key, type FROM attachments WHERE docid=? AND filename=?", args);
+
+            if(!cursor.moveToFirst()) {
+                status.setCode(TDStatus.NOT_FOUND);
+                return null;
+            }
+
+            byte[] keyData = cursor.getBlob(0);
+            //TODO add checks on key here? (ios version)
+            TDBlobKey key = new TDBlobKey(keyData);
+            path = attachments.pathForKey(key);
+        } catch (SQLException e) {
+            status.setCode(TDStatus.INTERNAL_SERVER_ERROR);
+            return null;
+        } finally {
+            if(cursor != null) {
+                cursor.close();
+            }
+        }
+        return path;
+    }
+    
+    public TDAttachment getAttachmentInfoForDocument(String docId, String filename, TDStatus status) {
+    	assert(filename != null);
+
+        Cursor cursor = null;
+
+        String[] args = { docId, filename };
+        try {
+            cursor = database.rawQuery("SELECT key, type, revpos FROM attachments WHERE docid=? AND filename=?", args);
+
+            if(!cursor.moveToFirst()) {
+                status.setCode(TDStatus.NOT_FOUND);
+                return null;
+            }
+            status.setCode(TDStatus.OK);
+            TDAttachment result = new TDAttachment();
+            result.setContentType(cursor.getString(1));
+            result.setRevPos(cursor.getInt(2));
+            return result;
+
+        } catch (SQLException e) {
+            status.setCode(TDStatus.INTERNAL_SERVER_ERROR);
+            return null;
+        } finally {
+            if(cursor != null) {
+                cursor.close();
+            }
+        }
+    }
 
     /**
      * Returns the content and MIME type of an attachment
      */
-    public TDAttachment getAttachmentForSequence(long sequence, String filename, TDStatus status) {
-        assert(sequence > 0);
+    public TDAttachment getAttachmentForDocument(String docId, String filename, TDStatus status) {
+        assert(docId != null);
         assert(filename != null);
-
 
         Cursor cursor = null;
 
-        String[] args = { Long.toString(sequence), filename };
+        String[] args = { docId, filename };
         try {
-            cursor = database.rawQuery("SELECT key, type FROM attachments WHERE sequence=? AND filename=?", args);
+            cursor = database.rawQuery("SELECT key, type FROM attachments WHERE docId=? AND filename=?", args);
 
             if(!cursor.moveToFirst()) {
+            	Log.e(TDDatabase.TAG, "Attachment "+filename+" could not be found in document "+docId);
                 status.setCode(TDStatus.NOT_FOUND);
                 return null;
             }
@@ -1434,6 +1505,7 @@ public class TDDatabase extends Observable {
 
 
         } catch (SQLException e) {
+        	e.printStackTrace();
             status.setCode(TDStatus.INTERNAL_SERVER_ERROR);
             return null;
         } finally {
@@ -1571,45 +1643,33 @@ public class TDDatabase extends Observable {
 
             TDStatus status = new TDStatus();
             Map<String,Object> newAttach = (Map<String,Object>)newAttachments.get(name);
-            String newContentBase64 = (String)newAttach.get("data");
-            if(newContentBase64 != null) {
-                // New item contains data, so insert it. First decode the data:
-                byte[] newContents;
-                try {
-                    newContents = Base64.decode(newContentBase64);
-                } catch (IOException e) {
-                    Log.e(TDDatabase.TAG, "IOExeption parsing base64", e);
-                    return new TDStatus(TDStatus.BAD_REQUEST);
-                }
-                if(newContents == null) {
-                    return new TDStatus(TDStatus.BAD_REQUEST);
-                }
 
-                // Now determine the revpos, i.e. generation # this was added in. Usually this is
-                // implicit, but a rev being pulled in replication will have it set already.
-                int generation = rev.getGeneration();
-                assert(generation > 0);
-                Object revposObj = newAttach.get("revpos");
-                int revpos = generation;
-                if(revposObj != null && revposObj instanceof Integer) {
-                    revpos = ((Integer)revposObj).intValue();
-                }
+            // Now determine the revpos, i.e. generation # this was added in. Usually this is
+            // implicit, but a rev being pulled in replication will have it set already.
+            int generation = rev.getGeneration();
+            assert(generation > 0);
+            Object revposObj = newAttach.get("revpos");
+            int revpos = generation;
+            if(revposObj != null && revposObj instanceof Integer) {
+                revpos = ((Integer)revposObj).intValue();
+            }
 
-                if(revpos > generation) {
-                    return new TDStatus(TDStatus.BAD_REQUEST);
-                }
-
-                // Finally insert the attachment:
-                status = insertAttachmentForSequenceWithNameAndType(new ByteArrayInputStream(newContents), newSequence, name, (String)newAttach.get("content_type"), revpos);
+            if(revpos > generation) {
+                return new TDStatus(TDStatus.BAD_REQUEST);
             }
-            else {
-                // It's just a stub, so copy the previous revision's attachment entry:
-                //? Should I enforce that the type and digest (if any) match?
-                status = copyAttachmentNamedFromSequenceToSequence(name, parentSequence, newSequence);
-            }
-            if(!status.isSuccessful()) {
-                return status;
-            }
+            
+            TDAttachment attachment = getAttachmentInfoForDocument(rev.getDocId(), name, new TDStatus());
+            if (attachment != null && attachment.getRevPos() == revpos) continue;
+            
+            Log.i(TDDatabase.TAG, "Loading attachment: "+name);
+            
+            URLConnection attachmentCon;
+            try {
+            	attachmentCon = new URL(rev.path+'/'+name).openConnection();
+           
+            	// Finally insert the attachment:
+            	status = insertAttachmentForSequenceWithNameAndType(attachmentCon.getInputStream(), newSequence, rev.getDocId(), name, (String)newAttach.get("content_type"), revpos);
+            } catch (Exception e) {new TDStatus(TDStatus.BAD_REQUEST);}
         }
 
         return new TDStatus(TDStatus.OK);
@@ -1674,7 +1734,7 @@ public class TDDatabase extends Observable {
             if(contentStream != null) {
                 // If not deleting, add a new attachment entry:
                 TDStatus insertStatus = insertAttachmentForSequenceWithNameAndType(contentStream, newRev.getSequence(),
-                        filename, contentType, newRev.getGeneration());
+                        newRev.getDocId(), filename, contentType, newRev.getGeneration());
                 status.setCode(insertStatus.getCode());
 
                 if(!status.isSuccessful()) {
@@ -2237,18 +2297,17 @@ public class TDDatabase extends Observable {
         return null;
     }
 
-    public TDReplicator getReplicator(URL remote, boolean push, boolean continuous, ScheduledExecutorService workExecutor) {
-        TDReplicator replicator = getReplicator(remote, null, push, continuous, workExecutor);
-
+    public TDReplicator getReplicator(URL remote, boolean push, boolean continuous, int timeout, ReplicationCallback cb, ScheduledExecutorService workExecutor) {
+        TDReplicator replicator = getReplicator(remote, null, push, continuous, timeout, cb, workExecutor);
     	return replicator;
     }
 
-    public TDReplicator getReplicator(URL remote, HttpClientFactory httpClientFactory, boolean push, boolean continuous, ScheduledExecutorService workExecutor) {
+    public TDReplicator getReplicator(URL remote, HttpClientFactory httpClientFactory, boolean push, boolean continuous, int timeout, ReplicationCallback cb, ScheduledExecutorService workExecutor) {
         TDReplicator result = getActiveReplicator(remote, push);
         if(result != null) {
             return result;
         }
-        result = push ? new TDPusher(this, remote, continuous, httpClientFactory, workExecutor) : new TDPuller(this, remote, continuous, httpClientFactory, workExecutor);
+        result = push ? new TDPusher(this, remote, continuous, timeout, cb, httpClientFactory, workExecutor) : new TDPuller(this, remote, continuous, timeout, cb, httpClientFactory, workExecutor);
 
         if(activeReplicators == null) {
             activeReplicators = new ArrayList<TDReplicator>();

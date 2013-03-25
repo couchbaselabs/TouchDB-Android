@@ -23,6 +23,7 @@ import com.couchbase.touchdb.TDMisc;
 import com.couchbase.touchdb.TDRevision;
 import com.couchbase.touchdb.TDRevisionList;
 import com.couchbase.touchdb.support.HttpClientFactory;
+import com.couchbase.touchdb.support.ReplicationCallback;
 import com.couchbase.touchdb.support.TDBatchProcessor;
 import com.couchbase.touchdb.support.TDBatcher;
 import com.couchbase.touchdb.support.TDRemoteRequest;
@@ -51,22 +52,25 @@ public abstract class TDReplicator extends Observable {
     private int changesTotal;
     protected final HttpClientFactory clientFacotry;
     protected String filterName;
+    protected int timeout;
     protected Map<String,Object> filterParams;
     protected ExecutorService remoteRequestExecutor;
+    protected ReplicationCallback callback;
 
     protected static final int PROCESSOR_DELAY = 500;
     protected static final int INBOX_CAPACITY = 100;
 
-    public TDReplicator(TDDatabase db, URL remote, boolean continuous, ScheduledExecutorService workExecutor) {
-        this(db, remote, continuous, null, workExecutor);
+    public TDReplicator(TDDatabase db, URL remote, boolean continuous, int timeout, ReplicationCallback cb, ScheduledExecutorService workExecutor) {
+        this(db, remote, continuous, timeout, cb, null, workExecutor);
     }
 
-    public TDReplicator(TDDatabase db, URL remote, boolean continuous, HttpClientFactory clientFacotry, ScheduledExecutorService workExecutor) {
-
+    public TDReplicator(TDDatabase db, URL remote, boolean continuous, int timeout, ReplicationCallback cb, HttpClientFactory clientFacotry, ScheduledExecutorService workExecutor) {
         this.db = db;
         this.remote = remote;
         this.continuous = continuous;
         this.workExecutor = workExecutor;
+        this.timeout = timeout;
+        this.callback = cb;
 
         this.remoteRequestExecutor = Executors.newCachedThreadPool();
 
@@ -271,7 +275,7 @@ public abstract class TDReplicator extends Observable {
         sendAsyncRequest("GET", "/_local/" + remoteCheckpointDocID(), null, new TDRemoteRequestCompletionBlock() {
 
             @Override
-            public void onCompletion(Object result, Throwable e) {
+            public void onCompletion(Object result, String path, Throwable e) {
                 if(e != null && e instanceof HttpResponseException && ((HttpResponseException)e).getStatusCode() != 404) {
                     error = e;
                 } else {
@@ -327,7 +331,7 @@ public abstract class TDReplicator extends Observable {
         sendAsyncRequest("PUT", "/_local/" + remoteCheckpointDocID, body, new TDRemoteRequestCompletionBlock() {
 
             @Override
-            public void onCompletion(Object result, Throwable e) {
+            public void onCompletion(Object result, String path, Throwable e) {
             	savingCheckpoint = false;
                 if(e != null) {
                     Log.v(TDDatabase.TAG, this + ": Unable to save remote checkpoint", e);
