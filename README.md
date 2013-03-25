@@ -51,7 +51,7 @@ public class MainActivity extends Activity {
         
         mediaServer = new MediaServer(8888, filesDir.getAbsolutePath());
         mediaServer.start();
-        mediaServer.replicate("http://your.domain:5984", "yourdb"true, 5000, new ReplicationCallback() {
+        mediaServer.replicate("http://your.domain:5984", "yourdb", true, 5000, new ReplicationCallback() {
             @Override
         	public void onTimeout() {
         		webView.loadUrl("http://0.0.0.0:8888/yourdb/_design/yourdoc/index.html");
