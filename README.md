@@ -8,6 +8,7 @@
 
 ## Improvements
 - added support for large attachments, as they crashed the version from above
+- integrated Marty Schoch's "replicator_fixes" branch https://github.com/couchbaselabs/TouchDB-Android/compare/master...replicator_fixes
 - added callback mechanism for replication. This works as follows:
 
 set a "ReplicationCallback" on your "TDServer" instance
