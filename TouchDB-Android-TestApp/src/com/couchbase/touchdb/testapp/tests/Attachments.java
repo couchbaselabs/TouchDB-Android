@@ -58,10 +58,10 @@ public class Attachments extends TouchDBTestCase {
         Assert.assertEquals(TDStatus.CREATED, status.getCode());
 
         byte[] attach1 = "This is the body of attach1".getBytes();
-        status = database.insertAttachmentForSequenceWithNameAndType(new ByteArrayInputStream(attach1), rev1.getSequence(), "attach", "text/plain", rev1.getGeneration());
+        status = database.insertAttachmentForSequenceWithNameAndType(new ByteArrayInputStream(attach1), rev1.getSequence(), rev1.getDocId(), "attach", "text/plain", rev1.getGeneration());
         Assert.assertEquals(TDStatus.CREATED, status.getCode());
 
-        TDAttachment attachment = database.getAttachmentForSequence(rev1.getSequence(), "attach", status);
+        TDAttachment attachment = database.getAttachmentForDocument(rev1.getDocId(), "attach", status);
         Assert.assertEquals(TDStatus.OK, status.getCode());
         Assert.assertEquals("text/plain", attachment.getContentType());
         byte[] data = IOUtils.toByteArray(attachment.getContentStream());
@@ -114,18 +114,18 @@ public class Attachments extends TouchDBTestCase {
         Assert.assertEquals(TDStatus.CREATED, status.getCode());
 
         byte[] attach2 = "<html>And this is attach2</html>".getBytes();
-        status = database.insertAttachmentForSequenceWithNameAndType(new ByteArrayInputStream(attach2), rev3.getSequence(), "attach", "text/html", rev2.getGeneration());
+        status = database.insertAttachmentForSequenceWithNameAndType(new ByteArrayInputStream(attach2), rev3.getSequence(), rev3.getDocId(), "attach", "text/html", rev2.getGeneration());
         Assert.assertEquals(TDStatus.CREATED, status.getCode());
 
         // Check the 2nd revision's attachment:
-        TDAttachment attachment2 = database.getAttachmentForSequence(rev2.getSequence(), "attach", status);
+        TDAttachment attachment2 = database.getAttachmentForDocument(rev2.getDocId(), "attach", status);
         Assert.assertEquals(TDStatus.OK, status.getCode());
         Assert.assertEquals("text/plain", attachment2.getContentType());
         data = IOUtils.toByteArray(attachment2.getContentStream());
         Assert.assertTrue(Arrays.equals(attach1, data));
 
         // Check the 3rd revision's attachment:
-        TDAttachment attachment3 = database.getAttachmentForSequence(rev3.getSequence(), "attach", status);
+        TDAttachment attachment3 = database.getAttachmentForDocument(rev3.getDocId(), "attach", status);
         Assert.assertEquals(TDStatus.OK, status.getCode());
         Assert.assertEquals("text/html", attachment3.getContentType());
         data = IOUtils.toByteArray(attachment3.getContentStream());

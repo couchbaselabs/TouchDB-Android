@@ -42,7 +42,7 @@ public class ChangeTracker extends TouchDBTestCase {
             }
         };
 
-        final TDChangeTracker changeTracker = new TDChangeTracker(testURL, TDChangeTrackerMode.OneShot, 0, client);
+        final TDChangeTracker changeTracker = new TDChangeTracker(testURL, TDChangeTrackerMode.OneShot, -1, null, 0, client);
 
         runTestOnUiThread(new Runnable() {
 
@@ -81,7 +81,7 @@ public class ChangeTracker extends TouchDBTestCase {
             }
         };
 
-        final TDChangeTracker changeTracker = new TDChangeTracker(testURL, TDChangeTrackerMode.LongPoll, 0, client);
+        final TDChangeTracker changeTracker = new TDChangeTracker(testURL, TDChangeTrackerMode.LongPoll, -1, null, 0, client);
 
         runTestOnUiThread(new Runnable() {
 
@@ -118,7 +118,7 @@ public class ChangeTracker extends TouchDBTestCase {
             }
         };
 
-        final TDChangeTracker changeTracker = new TDChangeTracker(testURL, TDChangeTrackerMode.Continuous, 0, client);
+        final TDChangeTracker changeTracker = new TDChangeTracker(testURL, TDChangeTrackerMode.Continuous, -1, null, 0, client);
 
         runTestOnUiThread(new Runnable() {
 
@@ -135,7 +135,7 @@ public class ChangeTracker extends TouchDBTestCase {
     public void testChangeTrackerWithFilterURL() throws Throwable {
 
         URL testURL = getReplicationURL();
-        TDChangeTracker changeTracker = new TDChangeTracker(testURL, TDChangeTrackerMode.Continuous, 0, null);
+        TDChangeTracker changeTracker = new TDChangeTracker(testURL, TDChangeTrackerMode.Continuous, -1, null, 0, null);
 
         // set filter
         changeTracker.setFilterName("filter");

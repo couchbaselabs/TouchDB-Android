@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Observable;
 import java.util.Observer;
+import java.util.concurrent.ScheduledExecutorService;
 
 import org.apache.http.client.HttpResponseException;
 
@@ -28,12 +29,12 @@ public class TDPusher extends TDReplicator implements Observer {
     private boolean observing;
     private TDFilterBlock filter;
 
-    public TDPusher(TDDatabase db, URL remote, boolean continuous, int timeout, ReplicationCallback cb) {
-        this(db, remote, continuous, timeout, cb, null);
+    public TDPusher(TDDatabase db, URL remote, boolean continuous, int timeout, ReplicationCallback cb, ScheduledExecutorService workExecutor) {
+        this(db, remote, continuous, timeout, cb, null, workExecutor);
     }
 
-    public TDPusher(TDDatabase db, URL remote, boolean continuous, int timeout, ReplicationCallback cb, HttpClientFactory clientFactory) {
-        super(db, remote, continuous, timeout, cb, clientFactory);
+    public TDPusher(TDDatabase db, URL remote, boolean continuous, int timeout, ReplicationCallback cb, HttpClientFactory clientFactory, ScheduledExecutorService workExecutor) {
+        super(db, remote, continuous, timeout, cb, clientFactory, workExecutor);
         createTarget = false;
         observing = false;
     }

@@ -1,5 +1,7 @@
 package com.couchbase.touchdb.listener;
 
+import java.util.concurrent.ScheduledExecutorService;
+
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -9,10 +11,9 @@ import com.couchbase.touchdb.router.TDURLStreamHandlerFactory;
 
 public class TDListener implements Runnable {
 
-    private Handler handler;
-    private HandlerThread handlerThread;
     private Thread thread;
     private TDHTTPServer httpServer;
+    private TDServer server;
 
     //static inializer to ensure that touchdb:// URLs are handled properly
     {
@@ -21,6 +22,7 @@ public class TDListener implements Runnable {
 
     public TDListener(TDServer server, int port) {
         this.httpServer = new TDHTTPServer();
+        this.server = server;
         this.httpServer.setServer(server);
         this.httpServer.setListener(this);
         this.httpServer.setPort(port);
@@ -28,21 +30,10 @@ public class TDListener implements Runnable {
 
     @Override
     public void run() {
-        try {
-            httpServer.serve();
-        }
-        finally {
-            handlerThread.quit();
-            handlerThread = null;
-            handler = null;
-        }
+        httpServer.serve();
     }
 
     public void start() {
-        handlerThread = new HandlerThread("TDListenerHandlerThread");
-        handlerThread.start();
-        Looper looper = handlerThread.getLooper();
-        handler = new Handler(looper);
         thread = new Thread(this);
         thread.start();
     }
@@ -52,7 +43,8 @@ public class TDListener implements Runnable {
     }
 
     public void onServerThread(Runnable r) {
-        handler.post(r);
+        ScheduledExecutorService workExecutor = this.server.getWorkExecutor();
+        workExecutor.submit(r);
     }
 
     public String getStatus() {

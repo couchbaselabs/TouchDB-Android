@@ -207,7 +207,7 @@ public class TDChangeTracker implements Runnable {
                 if(entity != null) {
                 	try {
 	                    InputStream input = entity.getContent();
-	                    if(mode != TDChangeTrackerMode.Continuous) {
+	                    if(mode == TDChangeTrackerMode.LongPoll) {
 	                        Map<String,Object> fullBody = TDServer.getObjectMapper().readValue(input, Map.class);
 	                        boolean responseOK = receivedPollResponse(fullBody);
 	                        if(mode == TDChangeTrackerMode.LongPoll && responseOK) {
@@ -222,9 +222,24 @@ public class TDChangeTracker implements Runnable {
 	                    	String line;
 	                        BufferedReader reader = new BufferedReader(new InputStreamReader(input));
 	                        while ((line=reader.readLine()) != null) {
-	                        	if (line.matches("\\{\"last_seq\":\\d+\\}")) receivedTimeout = true;
+	                        	if (line.matches("\\{\"last_seq\":\\d+\\}") && timeout != -1 && 
+	                        			mode == TDChangeTrackerMode.Continuous) {
+	                        		Log.w(TDDatabase.TAG, "Change tracker received timeout");
+	                        		if (callback != null) callback.onTimeout();
+	                                stop();
+	                        	}
+	                            //skip over lines which may be in a non-continuous response
+	                            if(line.equals("{\"results\":[") || line.equals("],")) {
+	                                continue;
+	                            }
+	                            else if(line.startsWith("\"last_seq\"") && mode == TDChangeTrackerMode.OneShot) {
+	                                Log.w(TDDatabase.TAG, "Change tracker calling stop");
+	                                stop();
+	                                break;
+	                            }
 	                            receivedChunk(line);
 	                        }
+	                        Log.v(TDDatabase.TAG, "read null from inpustream continuing");
 	                    }
                 	} finally {
                 		try { entity.consumeContent(); } catch (IOException e){}
@@ -239,15 +254,9 @@ public class TDChangeTracker implements Runnable {
                     Log.e(TDDatabase.TAG, "IOException in change tracker", e);
                 }
             } finally {
-            	if (timeout != -1 && receivedTimeout) {
-            		running = false;
-            		Log.i(TDDatabase.TAG, "Timeout in change tracker");
-            		if (callback != null) callback.onTimeout();
-            	} else {
-	            	try {
-	            		Thread.sleep(1000);
-	            	} catch(Exception e){}
-            	}
+            	try {
+            		Thread.sleep(1000);
+            	} catch(Exception e){}
             }
         }
         Log.v(TDDatabase.TAG, "Change tracker run loop exiting");

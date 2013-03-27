@@ -26,9 +26,17 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 import org.codehaus.jackson.map.ObjectMapper;
+
+import android.util.Log;
 
 import com.couchbase.touchdb.support.HttpClientFactory;
 import com.couchbase.touchdb.support.ReplicationCallback;
@@ -48,6 +56,8 @@ public class TDServer {
     private Map<String, TDDatabase> databases;
 
     private HttpClientFactory defaultHttpClientFactory;
+
+    private ScheduledExecutorService workExecutor;
 
     public static ObjectMapper getObjectMapper() {
         return mapper;
@@ -72,6 +82,8 @@ public class TDServer {
                 throw new IOException("Unable to create directory " + directory);
             }
         }
+
+        workExecutor = Executors.newSingleThreadScheduledExecutor();
     }
 
     private String pathForName(String name) {
@@ -148,10 +160,40 @@ public class TDServer {
     }
 
     public void close() {
-        for (TDDatabase database : databases.values()) {
-            database.close();
-        }
-        databases.clear();
+        Future<?> closeFuture = workExecutor.submit(new Runnable() {
+
+			@Override
+			public void run() {
+		        for (TDDatabase database : databases.values()) {
+		            database.close();
+		        }
+		        databases.clear();
+			}
+		});
+
+        try {
+			closeFuture.get();
+
+			// FIXME not happy with this solution, but it helps to
+			// avoid accumulating lots of these
+			// now schedule ourselves to shutdown after 60 second delay
+			// enough time for the remaining tasks to be scheduled
+			workExecutor.schedule(new Runnable() {
+
+				@Override
+				public void run() {
+					Log.v(TDDatabase.TAG, "Shutting Down");
+					workExecutor.shutdown();
+				}
+			}, 60, TimeUnit.SECONDS);
+
+		} catch (Exception e) {
+			Log.e(TDDatabase.TAG, "Exception while closing", e);
+		}
+    }
+
+    public ScheduledExecutorService getWorkExecutor() {
+        return workExecutor;
     }
 
     public HttpClientFactory getDefaultHttpClientFactory() {

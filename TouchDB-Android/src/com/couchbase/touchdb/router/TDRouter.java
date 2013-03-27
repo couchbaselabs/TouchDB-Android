@@ -552,7 +552,7 @@ public class TDRouter implements Observer {
 
         if(!cancel) {
             // Start replication:
-            TDReplicator repl = db.getReplicator(remote, server.getDefaultHttpClientFactory(), push, continuous, timeout == null ? -1 : timeout.intValue(), server.getReplicationCallback());
+            TDReplicator repl = db.getReplicator(remote, server.getDefaultHttpClientFactory(), push, continuous, timeout == null ? -1 : timeout.intValue(), server.getReplicationCallback(), server.getWorkExecutor());
             if(repl == null) {
                 return new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
             }
