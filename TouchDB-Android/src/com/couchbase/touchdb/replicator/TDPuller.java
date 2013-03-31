@@ -79,9 +79,13 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
             return;
         }
 
-        changeTracker.setClient(null);  // stop it from calling my changeTrackerStopped()
-        changeTracker.stop();
-        changeTracker = null;
+        // Prevents NPE in the event, the app is closed before the replication 
+        // could even start properly
+        if(changeTracker != null) {
+	        changeTracker.setClient(null);  // stop it from calling my changeTrackerStopped()
+	        changeTracker.stop();
+	        changeTracker = null;
+        }
 
         synchronized(this) {
             revsToPull = null;

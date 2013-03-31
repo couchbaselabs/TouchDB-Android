@@ -137,6 +137,13 @@ public class TDDatabase extends Observable {
             "        push BOOLEAN, " +
             "        last_sequence TEXT, " +
             "        UNIQUE (remote, push)); " +
+            "    CREATE TABLE replicator_log ( " +
+            "        remote TEXT NOT NULL, " +
+            "        push BOOLEAN, " +
+            "        docid TEXT NOT NULL, " +
+            "        revid TEXT NOT NULL, " +
+            "        sequence TEXT, " +
+            "        UNIQUE (remote, push, docid, revid)); " +
             "    PRAGMA user_version = 3";             // at the end, update user_version
 
     /*************************************************************************************************/

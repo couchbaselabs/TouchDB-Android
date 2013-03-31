@@ -221,7 +221,7 @@ public abstract class TDReplicator extends Observable {
     }
 
     public void sendAsyncRequest(String method, String relativePath, Object body, TDRemoteRequestCompletionBlock onCompletion) {
-        //Log.v(TDDatabase.TAG, String.format("%s: %s .%s", toString(), method, relativePath));
+        Log.v(TDDatabase.TAG, String.format("%s: %s .%s", toString(), method, relativePath));
         String urlStr = remote.toExternalForm() + relativePath;
         try {
             URL url = new URL(urlStr);
