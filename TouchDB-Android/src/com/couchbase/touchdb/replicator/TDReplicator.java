@@ -2,6 +2,7 @@ package com.couchbase.touchdb.replicator;
 
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,8 +20,6 @@ import com.couchbase.touchdb.TDMisc;
 import com.couchbase.touchdb.TDRevision;
 import com.couchbase.touchdb.TDRevisionList;
 import com.couchbase.touchdb.support.HttpClientFactory;
-import com.couchbase.touchdb.support.TDBatchProcessor;
-import com.couchbase.touchdb.support.TDBatcher;
 import com.couchbase.touchdb.support.TDRemoteRequest;
 import com.couchbase.touchdb.support.TDRemoteRequestCompletionBlock;
 
@@ -41,16 +40,28 @@ public abstract class TDReplicator extends Observable {
     protected boolean active;
     protected Throwable error;
     protected String sessionID;
-    protected TDBatcher<TDRevision> batcher;
+    //protected TDBatcher<TDRevision> batcher;
     protected int asyncTaskCount;
     private int changesProcessed;
     private int changesTotal;
-    protected final HttpClientFactory clientFacotry;
+    protected final HttpClientFactory clientFactory;
     protected String filterName;
     protected Map<String,Object> filterParams;
+    protected PendingChanges pendingChanges;
 
     protected static final int PROCESSOR_DELAY = 500;
     protected static final int INBOX_CAPACITY = 100;
+    
+    private class PendingChanges implements Runnable {
+		
+		@Override
+		public void run() {
+			TDRevisionList inbox = TDReplicator.this.db.getPendingRevisions(getRemote(),
+					 isPush());
+			TDReplicator.this.processInbox(inbox);
+			TDReplicator.this.handler.postDelayed(pendingChanges, PROCESSOR_DELAY*2*5);
+		}
+	};
 
     public TDReplicator(TDDatabase db, URL remote, boolean continuous) {
         this(db, remote, continuous, null);
@@ -63,18 +74,24 @@ public abstract class TDReplicator extends Observable {
         this.continuous = continuous;
         this.handler = db.getHandler();
 
+        // batcher = new TDBatcher<TDRevision>(db.getHandler(), INBOX_CAPACITY,
+		// PROCESSOR_DELAY, new TDBatchProcessor<TDRevision>() {
+		// @Override
+		// public void process(List<TDRevision> inbox) {
+		// inbox = TDReplicator.this.db.getPendingRevisions(getRemote(),
+		// isPush());
+		// Log.v(TDDatabase.TAG, "*** " + toString() + ": BEGIN processInbox ("
+		// + inbox.size() + " sequences)");
+		// processInbox(new TDRevisionList(inbox));
+		// Log.v(TDDatabase.TAG, "*** " + toString() +
+		// ": END processInbox (lastSequence=" + lastSequence);
+		// active = false;
+		// }
+		// });
+        
+        this.handler.postDelayed(pendingChanges = new PendingChanges(), PROCESSOR_DELAY);
 
-        batcher = new TDBatcher<TDRevision>(db.getHandler(), INBOX_CAPACITY, PROCESSOR_DELAY, new TDBatchProcessor<TDRevision>() {
-            @Override
-            public void process(List<TDRevision> inbox) {
-                Log.v(TDDatabase.TAG, "*** " + toString() + ": BEGIN processInbox (" + inbox.size() + " sequences)");
-                processInbox(new TDRevisionList(inbox));
-                Log.v(TDDatabase.TAG, "*** " + toString() + ": END processInbox (lastSequence=" + lastSequence);
-                active = false;
-            }
-        });
-
-        this.clientFacotry = clientFacotry != null ? clientFacotry : new HttpClientFactory() {
+        this.clientFactory = clientFacotry != null ? clientFacotry : new HttpClientFactory() {
 			@Override
 			public HttpClient getHttpClient() {
 				return new DefaultHttpClient();
@@ -99,6 +116,9 @@ public abstract class TDReplicator extends Observable {
     }
 
     public void databaseClosing() {
+    	if(pendingChanges != null){
+    		this.handler.removeCallbacks(pendingChanges);
+    	}
         saveLastSequence();
         stop();
         db = null;
@@ -179,7 +199,7 @@ public abstract class TDReplicator extends Observable {
             return;
         }
         Log.v(TDDatabase.TAG, toString() + " STOPPING...");
-        batcher.flush();
+        //batcher.flush();
         continuous = false;
         if(asyncTaskCount == 0) {
             stopped();
@@ -193,7 +213,7 @@ public abstract class TDReplicator extends Observable {
 
         saveLastSequence();
 
-        batcher = null;
+        //batcher = null;
         db = null;
     }
 
@@ -209,15 +229,37 @@ public abstract class TDReplicator extends Observable {
     }
 
     public void addToInbox(TDRevision rev) {
-        if(batcher.count() == 0) {
-            active = true;
-        }
-        batcher.queueObject(rev);
+		// if(batcher.count() == 0) {
+		// active = true;
+		// }
+		// batcher.queueObject(rev);
         //Log.v(TDDatabase.TAG, String.format("%s: Received #%d %s", toString(), rev.getSequence(), rev.toString()));
     }
 
     public void processInbox(TDRevisionList inbox) {
 
+    }
+    
+    public boolean logRevisions(ArrayList<TDRevision> revs){
+    	this.db.beginTransaction();
+    	boolean success = true;
+    	for(int i =0; i < revs.size() && success; i++){
+    		success = success && logRevision(revs.get(i));
+    	}
+    	this.db.endTransaction(success);
+    	return success;
+    }
+    
+    public boolean logRevision(TDRevision rev){
+    	return this.db.logRevision(this.remote, isPush(), rev);
+    }
+    
+    public List<TDRevision> getPendingRevisions(){
+    	return this.db.getPendingRevisions(this.remote, isPush());
+    }
+    
+    public void removeLogForRevision(TDRevision rev){
+    	 this.db.removeLogForRevision(this.remote, isPush(), rev);
     }
 
     public void sendAsyncRequest(String method, String relativePath, Object body, TDRemoteRequestCompletionBlock onCompletion) {
@@ -225,7 +267,7 @@ public abstract class TDReplicator extends Observable {
         String urlStr = remote.toExternalForm() + relativePath;
         try {
             URL url = new URL(urlStr);
-            TDRemoteRequest request = new TDRemoteRequest(db.getHandler(), clientFacotry, method, url, body, onCompletion);
+            TDRemoteRequest request = new TDRemoteRequest(db.getHandler(), clientFactory, method, url, body, onCompletion);
             request.start();
         } catch (MalformedURLException e) {
             Log.e(TDDatabase.TAG, "Malformed URL for async request", e);

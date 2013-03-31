@@ -96,7 +96,12 @@ public class TDPusher extends TDReplicator implements Observer {
         }
         TDRevisionList changes = db.changesSince(lastSequenceLong, null, filter);
         if(changes.size() > 0) {
-            processInbox(changes);
+        	// Write these changes
+            //processInbox(changes);
+        	if(logRevisions(changes)){
+        		long lastSeq = changes.get(changes.size()-1).getSequence();
+        		setLastSequence(String.format("%d", lastSeq));
+        	}
         }
 
         // Now listen for future changes (in continuous mode):
@@ -133,7 +138,12 @@ public class TDPusher extends TDReplicator implements Observer {
             }
             TDRevision rev = (TDRevision)change.get("rev");
             if(rev != null && ((filter == null) || filter.filter(rev))) {
-                addToInbox(rev);
+                //addToInbox(rev);
+            	
+            	// We add it to the log and we move the counter up
+            	if(logRevision(rev)){
+            		setLastSequence(String.format("%d", rev.getSequence()));
+            	}
             }
         }
 
@@ -141,6 +151,10 @@ public class TDPusher extends TDReplicator implements Observer {
 
     @Override
     public void processInbox(final TDRevisionList inbox) {
+    	if(inbox.size() == 0){
+    		return;
+    	}
+    	
         final long lastInboxSequence = inbox.get(inbox.size()-1).getSequence();
         // Generate a set of doc/rev IDs in the JSON format that _revs_diff wants:
         Map<String,List<String>> diffs = new HashMap<String,List<String>>();
@@ -207,6 +221,7 @@ public class TDPusher extends TDReplicator implements Observer {
                     Map<String,Object> bulkDocsBody = new HashMap<String,Object>();
                     bulkDocsBody.put("docs", docsToSend);
                     bulkDocsBody.put("new_edits", false);
+                    bulkDocsBody.put("all_or_nothing", true);
                     Log.i(TDDatabase.TAG, String.format("%s: Sending %d revisions", this, numDocsToSend));
                     Log.v(TDDatabase.TAG, String.format("%s: Sending %s", this, inbox));
                     setChangesTotal(getChangesTotal() + numDocsToSend);
@@ -219,7 +234,12 @@ public class TDPusher extends TDReplicator implements Observer {
                                 error = e;
                             } else {
                                 Log.v(TDDatabase.TAG, String.format("%s: Sent %s", this, inbox));
-                                setLastSequence(String.format("%d", lastInboxSequence));
+                                //setLastSequence(String.format("%d", lastInboxSequence));
+                                db.beginTransaction();
+                            	for(TDRevision rev : inbox) {
+                            		removeLogForRevision(rev);
+                            	}
+                            	db.endTransaction(true);
                             }
                             setChangesProcessed(getChangesProcessed() + numDocsToSend);
                             asyncTaskFinished(1);
@@ -228,7 +248,13 @@ public class TDPusher extends TDReplicator implements Observer {
 
                 } else {
                     // If none of the revisions are new to the remote, just bump the lastSequence:
-                    setLastSequence(String.format("%d", lastInboxSequence));
+                    //setLastSequence(String.format("%d", lastInboxSequence));
+                	// Remove entries from replicator_log
+                	db.beginTransaction();
+                	for(TDRevision rev : inbox) {
+                		removeLogForRevision(rev);
+                	}
+                	db.endTransaction(true);
                 }
                 asyncTaskFinished(1);
             }

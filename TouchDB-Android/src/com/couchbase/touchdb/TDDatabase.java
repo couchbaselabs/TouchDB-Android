@@ -34,6 +34,7 @@ import java.util.Set;
 import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.SQLException;
+import android.database.sqlite.SQLiteConstraintException;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
 import android.os.Handler;
@@ -139,10 +140,11 @@ public class TDDatabase extends Observable {
             "        UNIQUE (remote, push)); " +
             "    CREATE TABLE replicator_log ( " +
             "        remote TEXT NOT NULL, " +
-            "        push BOOLEAN, " +
+            "        push BOOLEAN, " +            
             "        docid TEXT NOT NULL, " +
             "        revid TEXT NOT NULL, " +
-            "        sequence TEXT, " +
+            "        deleted BOOLEAN, " +
+            "        sequence INTEGER, " +
             "        UNIQUE (remote, push, docid, revid)); " +
             "    PRAGMA user_version = 3";             // at the end, update user_version
 
@@ -2280,6 +2282,53 @@ public class TDDatabase extends Observable {
         }
         activeReplicators.add(result);
         return result;
+    }
+    
+    public TDRevisionList getPendingRevisions(URL url, boolean push){
+    	TDRevisionList result = new TDRevisionList();
+    	String[] args = { url.toExternalForm(), Integer.toString(push ? 1 : 0) };
+    	Cursor cursor = database.rawQuery("SELECT docid, revid, deleted, sequence FROM replicator_log WHERE remote=? AND push=? LIMIT 50", args);
+    	if(cursor.moveToFirst()) {
+    		do{
+    			TDRevision rev = new TDRevision(cursor.getString(0), cursor.getString(1), cursor.getInt(2) == 1? true : false);
+    			rev.setSequence(cursor.getLong(3));
+    			result.add(rev);
+    		} while(cursor.moveToNext());
+    	}
+		return result;
+    }
+    
+    public boolean logRevision(URL url, boolean push, TDRevision rev){
+    	boolean success = false;
+    	Object[] args = { url.toExternalForm(), Integer.toString(push ? 1 : 0), rev.getDocId(), rev.getRevId(), (rev.isDeleted()?1:0), rev.getSequence()};
+    	try {
+	    	database.execSQL("INSERT INTO replicator_log(remote, push, docid, revid, deleted, sequence) VALUES(?,?,?,?,?,?)", args);
+	    	Cursor cursor = database.rawQuery("SELECT changes()", null);
+			if(cursor.moveToFirst() && cursor.getInt(0)>0){
+	    		success  = true;
+	    	}
+    	}catch(SQLiteConstraintException e){
+    		// Trying to log a revision that is already present
+    		// Do nothing
+    		success = true;
+    	}
+    	return success;
+    }
+    
+    public void removeLogForRevision(URL url, boolean push, TDRevision rev){
+    	Object[] args = { url.toExternalForm(), Integer.toString(push ? 1 : 0), rev.getDocId(), rev.getRevId()};
+    	try {
+	    	database.execSQL("DELETE FROM replicator_log WHERE remote=? AND push=? AND docid=? AND revid=?", args);
+	    	Cursor cursor = database.rawQuery("SELECT changes()", null);
+			if(cursor.moveToFirst() && cursor.getInt(0)>0){
+	    		//success  = true;
+	    	}
+    	}catch(SQLiteConstraintException e){
+    		// Trying to log a revision that is already present
+    		// Do nothing
+    		//success = true;
+    	}
+    	//return success;
     }
 
     public String lastSequenceWithRemoteURL(URL url, boolean push) {

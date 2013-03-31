@@ -92,7 +92,7 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
         }
 
         super.stop();
-
+        
         downloadsToInsert.flush();
     }
 
@@ -119,7 +119,8 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
         }
         boolean deleted = (change.containsKey("deleted") && ((Boolean)change.get("deleted")).equals(Boolean.TRUE));
         List<Map<String,Object>> changes = (List<Map<String,Object>>)change.get("changes");
-        for (Map<String, Object> changeDict : changes) {
+        ArrayList<TDRevision> revs = new ArrayList<TDRevision>();
+		for (Map<String, Object> changeDict : changes) {
             String revID = (String)changeDict.get("rev");
             if(revID == null) {
                 continue;
@@ -127,9 +128,19 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
             TDPulledRevision rev = new TDPulledRevision(docID, revID, deleted);
             rev.setRemoteSequenceID(lastSequence);
             rev.setSequence(++nextFakeSequence);
-            addToInbox(rev);
+            //addToInbox(rev);
+            revs .add(rev);
         }
-        setChangesTotal(getChangesTotal() + changes.size());
+        if(logRevisions(revs)){
+	        setChangesTotal(getChangesTotal() + changes.size());
+	        
+	        // We set the sequence to ensure that changes tracker keeps 
+	        // moving forward. The docs pull eventually catches up. Filters
+	        // are quite slow on CouchDB if you are pulling changes 
+	        // from the beginning, we want to retain as much progress we have 
+	        // made as possible
+	        setLastSequence(lastSequence);
+        }
     }
 
     @Override
@@ -140,16 +151,16 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 //            error = tracker.getError();
 //        }
         changeTracker = null;
-        if(batcher != null) {
-            batcher.flush();
-        }
+//        if(batcher != null) {
+//            batcher.flush();
+//        }
 
         asyncTaskFinished(1);
     }
 
     @Override
     public HttpClient getHttpClient() {
-    	HttpClient httpClient = this.clientFacotry.getHttpClient();
+    	HttpClient httpClient = this.clientFactory.getHttpClient();
 
         return httpClient;
     }
@@ -161,25 +172,29 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
     public void processInbox(TDRevisionList inbox) {
         // Ask the local database which of the revs are not known to it:
         //Log.w(TDDatabase.TAG, String.format("%s: Looking up %s", this, inbox));
-        String lastInboxSequence = ((TDPulledRevision)inbox.get(inbox.size()-1)).getRemoteSequenceID();
+    	// We have already updated the sequence
+        //String lastInboxSequence = ((TDPulledRevision)inbox.get(inbox.size()-1)).getRemoteSequenceID();
         int total = getChangesTotal() - inbox.size();
-        if(!db.findMissingRevisions(inbox)) {
-            Log.w(TDDatabase.TAG, String.format("%s failed to look up local revs", this));
-            inbox = null;
-        }
+        
+        // Seems to use up a lot of memory
+		// if(!db.findMissingRevisions(inbox)) {
+		// Log.w(TDDatabase.TAG,
+		// String.format("%s failed to look up local revs", this));
+		// inbox = null;
+		// }
         //introducing this to java version since inbox may now be null everywhere
         int inboxCount = 0;
         if(inbox != null) {
             inboxCount = inbox.size();
         }
-        if(getChangesTotal() != total + inboxCount) {
-            setChangesTotal(total + inboxCount);
-        }
+//        if(getChangesTotal() != total + inboxCount) {
+//            setChangesTotal(total + inboxCount);
+//        }
 
         if(inboxCount == 0) {
             // Nothing to do. Just bump the lastSequence.
             Log.w(TDDatabase.TAG, String.format("%s no new remote revisions to fetch", this));
-            setLastSequence(lastInboxSequence);
+         //   setLastSequence(lastInboxSequence);
             return;
         }
 
@@ -196,14 +211,14 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 
         //TEST
         //adding wait here to prevent revsToPull from getting too large
-        while(revsToPull != null && revsToPull.size() > 1000) {
-            pullRemoteRevisions();
-            try {
-                Thread.sleep(500);
-            } catch (InterruptedException e) {
-                //wake up
-            }
-        }
+		// while(revsToPull != null && revsToPull.size() > 1000) {
+		// pullRemoteRevisions();
+		// try {
+		// Thread.sleep(500);
+		// } catch (InterruptedException e) {
+		// //wake up
+		// }
+		// }
     }
 
     /**
@@ -230,7 +245,7 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
         // Construct a query. We want the revision history, and the bodies of attachments that have
         // been added since the latest revisions we have locally.
         // See: http://wiki.apache.org/couchdb/HTTP_Document_API#Getting_Attachments_With_a_Document
-        StringBuilder path = new StringBuilder("/" + URLEncoder.encode(rev.getDocId()) + "?rev=" + URLEncoder.encode(rev.getRevId()) + "&revs=true&attachments=true");
+        StringBuilder path = new StringBuilder("/" + rev.getDocId() + "?rev=" + URLEncoder.encode(rev.getRevId()) + "&revs=true&attachments=true");
         List<String> knownRevs = knownCurrentRevIDs(rev);
         if(knownRevs == null) {
             //this means something is wrong, possibly the replicator has shut down
@@ -303,7 +318,7 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
         });
 
         boolean allGood = true;
-        TDPulledRevision lastGoodRev = null;
+        //TDPulledRevision lastGoodRev = null;
 
         if(db == null) {
             return;
@@ -312,7 +327,7 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
         boolean success = false;
         try {
             for (List<Object> revAndHistory : revs) {
-                TDPulledRevision rev = (TDPulledRevision)revAndHistory.get(0);
+                TDRevision rev = (TDRevision) revAndHistory.get(0);
                 List<String> history = (List<String>)revAndHistory.get(1);
                 // Insert the revision:
                 TDStatus status = db.forceInsert(rev, history, remote);
@@ -325,18 +340,21 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
                         allGood = false; // stop advancing lastGoodRev
                     }
                 }
+                
+                // Remove the replicator_log entry for the remote,push,docid,rev
+                removeLogForRevision(rev);
 
                 if(allGood) {
-                    lastGoodRev = rev;
+                    //lastGoodRev = rev;
                 }
             }
 
             // Now update lastSequence from the latest consecutively inserted revision:
-            long lastGoodFakeSequence = lastGoodRev.getSequence();
-            if(lastGoodFakeSequence > maxInsertedFakeSequence) {
-                maxInsertedFakeSequence = lastGoodFakeSequence;
-                setLastSequence(lastGoodRev.getRemoteSequenceID());
-            }
+			// long lastGoodFakeSequence = lastGoodRev.getSequence();
+			// if(lastGoodFakeSequence > maxInsertedFakeSequence) {
+			// maxInsertedFakeSequence = lastGoodFakeSequence;
+			// setLastSequence(lastGoodRev.getRemoteSequenceID());
+			// }
 
             Log.w(TDDatabase.TAG, this + " finished inserting " + revs.size() + " revisions");
             success = true;
