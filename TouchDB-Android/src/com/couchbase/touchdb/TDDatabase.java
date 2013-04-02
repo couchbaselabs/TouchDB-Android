@@ -138,14 +138,6 @@ public class TDDatabase extends Observable {
             "        push BOOLEAN, " +
             "        last_sequence TEXT, " +
             "        UNIQUE (remote, push)); " +
-            "    CREATE TABLE replicator_log ( " +
-            "        remote TEXT NOT NULL, " +
-            "        push BOOLEAN, " +            
-            "        docid TEXT NOT NULL, " +
-            "        revid TEXT NOT NULL, " +
-            "        deleted BOOLEAN, " +
-            "        sequence INTEGER, " +
-            "        UNIQUE (remote, push, docid, revid)); " +
             "    PRAGMA user_version = 3";             // at the end, update user_version
 
     /*************************************************************************************************/
@@ -307,6 +299,22 @@ public class TDDatabase extends Observable {
                     "INSERT INTO INFO (key, value) VALUES ('privateUUID', '" + TDMisc.TDCreateUUID() + "'); " +
                     "INSERT INTO INFO (key, value) VALUES ('publicUUID',  '" + TDMisc.TDCreateUUID() + "'); " +
                     "PRAGMA user_version = 4";
+            if(!initialize(upgradeSql)) {
+                database.close();
+                return false;
+            }
+        }
+        
+        if (dbVersion < 5) {
+            String upgradeSql = "CREATE TABLE replicator_log ( " +
+            					"        remote TEXT NOT NULL, " +
+            					"        push BOOLEAN, " +            
+            					"        docid TEXT NOT NULL, " +
+            					"        revid TEXT NOT NULL, " +
+            					"        deleted BOOLEAN, " +
+            					"        sequence INTEGER, " +
+            					"        UNIQUE (remote, push, docid, revid)); " +
+            					"PRAGMA user_version = 5";
             if(!initialize(upgradeSql)) {
                 database.close();
                 return false;
@@ -2295,15 +2303,20 @@ public class TDDatabase extends Observable {
     			result.add(rev);
     		} while(cursor.moveToNext());
     	}
+    	
+    	if(cursor != null) {
+    		cursor.close();
+    	}
 		return result;
     }
     
     public boolean logRevision(URL url, boolean push, TDRevision rev){
     	boolean success = false;
     	Object[] args = { url.toExternalForm(), Integer.toString(push ? 1 : 0), rev.getDocId(), rev.getRevId(), (rev.isDeleted()?1:0), rev.getSequence()};
-    	try {
+    	Cursor cursor = null;
+		try {
 	    	database.execSQL("INSERT INTO replicator_log(remote, push, docid, revid, deleted, sequence) VALUES(?,?,?,?,?,?)", args);
-	    	Cursor cursor = database.rawQuery("SELECT changes()", null);
+	    	cursor = database.rawQuery("SELECT changes()", null);
 			if(cursor.moveToFirst() && cursor.getInt(0)>0){
 	    		success  = true;
 	    	}
@@ -2311,15 +2324,20 @@ public class TDDatabase extends Observable {
     		// Trying to log a revision that is already present
     		// Do nothing
     		success = true;
+    	} finally {
+    		if(cursor != null) {
+        		cursor.close();
+        	}
     	}
     	return success;
     }
     
     public void removeLogForRevision(URL url, boolean push, TDRevision rev){
     	Object[] args = { url.toExternalForm(), Integer.toString(push ? 1 : 0), rev.getDocId(), rev.getRevId()};
-    	try {
+    	Cursor cursor = null;
+		try {
 	    	database.execSQL("DELETE FROM replicator_log WHERE remote=? AND push=? AND docid=? AND revid=?", args);
-	    	Cursor cursor = database.rawQuery("SELECT changes()", null);
+	    	 cursor = database.rawQuery("SELECT changes()", null);
 			if(cursor.moveToFirst() && cursor.getInt(0)>0){
 	    		//success  = true;
 	    	}
@@ -2327,6 +2345,10 @@ public class TDDatabase extends Observable {
     		// Trying to log a revision that is already present
     		// Do nothing
     		//success = true;
+    	} finally {
+    		if(cursor != null) {
+        		cursor.close();
+        	}
     	}
     	//return success;
     }
