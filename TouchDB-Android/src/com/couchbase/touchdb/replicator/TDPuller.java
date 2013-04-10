@@ -245,7 +245,7 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
         // Construct a query. We want the revision history, and the bodies of attachments that have
         // been added since the latest revisions we have locally.
         // See: http://wiki.apache.org/couchdb/HTTP_Document_API#Getting_Attachments_With_a_Document
-        StringBuilder path = new StringBuilder("/" + rev.getDocId() + "?rev=" + URLEncoder.encode(rev.getRevId()) + "&revs=true&attachments=true");
+        StringBuilder path = new StringBuilder("/" + URLEncoder.encode(rev.getDocId()) + "?rev=" + URLEncoder.encode(rev.getRevId()) + "&revs=true&attachments=true");
         List<String> knownRevs = knownCurrentRevIDs(rev);
         if(knownRevs == null) {
             //this means something is wrong, possibly the replicator has shut down
