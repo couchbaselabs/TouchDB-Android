@@ -46,6 +46,7 @@ public class TDURLConnection extends HttpURLConnection {
 
     public TDURLConnection(URL url) {
         super(url);
+        this.setReadTimeout(10000);
         responseInputStream = new PipedInputStream();
         try {
             responseOutputStream = new PipedOutputStream((PipedInputStream)responseInputStream);
@@ -228,6 +229,7 @@ public class TDURLConnection extends HttpURLConnection {
 
     public void setResponseInputStream(InputStream responseInputStream) {
         this.responseInputStream = responseInputStream;
+        this.setReadTimeout(10000);
     }
 
     public InputStream getResponseInputStream() {

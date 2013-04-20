@@ -36,6 +36,7 @@ import android.util.Log;
 
 import com.couchbase.touchdb.TDDatabase;
 import com.couchbase.touchdb.TDServer;
+import com.couchbase.touchdb.support.ReplicationCallback;
 
 /**
  * Reads the continuous-mode _changes feed of a database, and sends the
@@ -51,22 +52,26 @@ public class TDChangeTracker implements Runnable {
     private Thread thread;
     private boolean running = false;
     private HttpUriRequest request;
+    private int timeout;
 
     private String filterName;
     private Map<String, Object> filterParams;
 
     private Throwable error;
+    private ReplicationCallback callback;
 
     public enum TDChangeTrackerMode {
         OneShot, LongPoll, Continuous
     }
 
-    public TDChangeTracker(URL databaseURL, TDChangeTrackerMode mode,
+    public TDChangeTracker(URL databaseURL, TDChangeTrackerMode mode, int timeout, ReplicationCallback cb,
             Object lastSequenceID, TDChangeTrackerClient client) {
         this.databaseURL = databaseURL;
         this.mode = mode;
+        this.timeout = timeout;
         this.lastSequenceID = lastSequenceID;
         this.client = client;
+        this.callback = cb;
     }
 
     public void setFilterName(String filterName) {
@@ -108,7 +113,11 @@ public class TDChangeTracker implements Runnable {
             path += "continuous";
             break;
         }
-        path += "&heartbeat=300000";
+        if (timeout != -1) {
+        	path += "&timeout="+timeout;
+        } else {
+        	path += "&heartbeat=300000";
+        }
 
         if(lastSequenceID != null) {
             path += "&since=" + URLEncoder.encode(lastSequenceID.toString());
@@ -185,10 +194,9 @@ public class TDChangeTracker implements Runnable {
                 }
             }
 
+            boolean receivedTimeout = false;
             try {
-                String maskedRemoteWithoutCredentials = getChangesFeedURL().toString();
-                maskedRemoteWithoutCredentials = maskedRemoteWithoutCredentials.replaceAll("://.*:.*@","://---:---@");
-                Log.v(TDDatabase.TAG, "Making request to " + maskedRemoteWithoutCredentials);
+                Log.v(TDDatabase.TAG, "Making request to " + getChangesFeedURL().toString());
                 HttpResponse response = httpClient.execute(request);
                 StatusLine status = response.getStatusLine();
                 if(status.getStatusCode() >= 300) {
@@ -199,7 +207,7 @@ public class TDChangeTracker implements Runnable {
                 if(entity != null) {
                 	try {
 	                    InputStream input = entity.getContent();
-	                    if(mode != TDChangeTrackerMode.Continuous) {
+	                    if(mode == TDChangeTrackerMode.LongPoll) {
 	                        Map<String,Object> fullBody = TDServer.getObjectMapper().readValue(input, Map.class);
 	                        boolean responseOK = receivedPollResponse(fullBody);
 	                        if(mode == TDChangeTrackerMode.LongPoll && responseOK) {
@@ -211,11 +219,27 @@ public class TDChangeTracker implements Runnable {
 	                        }
 	                    }
 	                    else {
+	                    	String line;
 	                        BufferedReader reader = new BufferedReader(new InputStreamReader(input));
-	                        String line = null;
 	                        while ((line=reader.readLine()) != null) {
+	                        	if (line.matches("\\{\"last_seq\":\\d+\\}") && timeout != -1 && 
+	                        			mode == TDChangeTrackerMode.Continuous) {
+	                        		Log.w(TDDatabase.TAG, "Change tracker received timeout");
+	                        		if (callback != null) callback.onTimeout();
+	                                stop();
+	                        	}
+	                            //skip over lines which may be in a non-continuous response
+	                            if(line.equals("{\"results\":[") || line.equals("],")) {
+	                                continue;
+	                            }
+	                            else if(line.startsWith("\"last_seq\"") && mode == TDChangeTrackerMode.OneShot) {
+	                                Log.w(TDDatabase.TAG, "Change tracker calling stop");
+	                                stop();
+	                                break;
+	                            }
 	                            receivedChunk(line);
 	                        }
+	                        Log.v(TDDatabase.TAG, "read null from inpustream continuing");
 	                    }
                 	} finally {
                 		try { entity.consumeContent(); } catch (IOException e){}
@@ -229,6 +253,10 @@ public class TDChangeTracker implements Runnable {
                     //close the socket underneath our read, ignore that
                     Log.e(TDDatabase.TAG, "IOException in change tracker", e);
                 }
+            } finally {
+            	try {
+            		Thread.sleep(1000);
+            	} catch(Exception e){}
             }
         }
         Log.v(TDDatabase.TAG, "Change tracker run loop exiting");

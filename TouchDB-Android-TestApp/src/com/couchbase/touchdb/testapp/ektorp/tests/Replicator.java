@@ -26,6 +26,8 @@ import org.ektorp.ReplicationStatus;
 import org.ektorp.http.HttpClient;
 import org.ektorp.impl.StdCouchDbInstance;
 
+import android.util.Log;
+
 import com.couchbase.touchdb.TDDatabase;
 import com.couchbase.touchdb.TDFilterBlock;
 import com.couchbase.touchdb.TDRevision;
@@ -103,10 +105,12 @@ public class Replicator extends TouchDBTestCase {
         dbConnector.create(test2);
         dbConnector.create(test3);
 
+        String url  = getReplicationURL().toExternalForm();
+        Log.i("REPLICATION URL", url);
         // push this database to the test replication server
         ReplicationCommand pushCommand = new ReplicationCommand.Builder()
             .source(DEFAULT_TEST_DB)
-            .target(getReplicationURL().toExternalForm())
+            .target(url)
             .continuous(false)
             .filter("evenFoo")
             .build();

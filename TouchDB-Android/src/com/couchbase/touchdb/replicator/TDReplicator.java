@@ -6,6 +6,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Observable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.HttpResponseException;
@@ -19,6 +23,7 @@ import com.couchbase.touchdb.TDMisc;
 import com.couchbase.touchdb.TDRevision;
 import com.couchbase.touchdb.TDRevisionList;
 import com.couchbase.touchdb.support.HttpClientFactory;
+import com.couchbase.touchdb.support.ReplicationCallback;
 import com.couchbase.touchdb.support.TDBatchProcessor;
 import com.couchbase.touchdb.support.TDBatcher;
 import com.couchbase.touchdb.support.TDRemoteRequest;
@@ -28,7 +33,7 @@ public abstract class TDReplicator extends Observable {
 
     private static int lastSessionID = 0;
 
-    protected Handler handler;
+    protected ScheduledExecutorService workExecutor;
     protected TDDatabase db;
     protected URL remote;
     protected boolean continuous;
@@ -47,24 +52,30 @@ public abstract class TDReplicator extends Observable {
     private int changesTotal;
     protected final HttpClientFactory clientFacotry;
     protected String filterName;
+    protected int timeout;
     protected Map<String,Object> filterParams;
+    protected ExecutorService remoteRequestExecutor;
+    protected ReplicationCallback callback;
 
     protected static final int PROCESSOR_DELAY = 500;
     protected static final int INBOX_CAPACITY = 100;
 
-    public TDReplicator(TDDatabase db, URL remote, boolean continuous) {
-        this(db, remote, continuous, null);
+    public TDReplicator(TDDatabase db, URL remote, boolean continuous, int timeout, ReplicationCallback cb, ScheduledExecutorService workExecutor) {
+        this(db, remote, continuous, timeout, cb, null, workExecutor);
     }
 
-    public TDReplicator(TDDatabase db, URL remote, boolean continuous, HttpClientFactory clientFacotry) {
-
+    public TDReplicator(TDDatabase db, URL remote, boolean continuous, int timeout, ReplicationCallback cb, HttpClientFactory clientFacotry, ScheduledExecutorService workExecutor) {
         this.db = db;
         this.remote = remote;
         this.continuous = continuous;
-        this.handler = db.getHandler();
+        this.workExecutor = workExecutor;
+        this.timeout = timeout;
+        this.callback = cb;
+
+        this.remoteRequestExecutor = Executors.newCachedThreadPool();
 
 
-        batcher = new TDBatcher<TDRevision>(db.getHandler(), INBOX_CAPACITY, PROCESSOR_DELAY, new TDBatchProcessor<TDRevision>() {
+        batcher = new TDBatcher<TDRevision>(workExecutor, INBOX_CAPACITY, PROCESSOR_DELAY, new TDBatchProcessor<TDRevision>() {
             @Override
             public void process(List<TDRevision> inbox) {
                 Log.v(TDDatabase.TAG, "*** " + toString() + ": BEGIN processInbox (" + inbox.size() + " sequences)");
@@ -105,9 +116,7 @@ public abstract class TDReplicator extends Observable {
     }
 
     public String toString() {
-        String maskedRemoteWithoutCredentials = (remote != null ? remote.toExternalForm() : "");
-        maskedRemoteWithoutCredentials = maskedRemoteWithoutCredentials.replaceAll("://.*:.*@","://---:---@");
-        String name = getClass().getSimpleName() + "[" + maskedRemoteWithoutCredentials + "]";
+        String name = getClass().getSimpleName() + "[" + (remote != null ? remote.toExternalForm() : "") + "]";
         return name;
     }
 
@@ -125,13 +134,13 @@ public abstract class TDReplicator extends Observable {
             lastSequence = lastSequenceIn;
             if(!lastSequenceChanged) {
                 lastSequenceChanged = true;
-                handler.postDelayed(new Runnable() {
+                workExecutor.schedule(new Runnable() {
 
                     @Override
                     public void run() {
                         saveLastSequence();
                     }
-                }, 2 * 1000);
+                }, 2 * 1000, TimeUnit.MILLISECONDS);
             }
         }
     }
@@ -204,7 +213,9 @@ public abstract class TDReplicator extends Observable {
     public synchronized void asyncTaskFinished(int numTasks) {
         this.asyncTaskCount -= numTasks;
         if(asyncTaskCount == 0) {
-            stopped();
+            if(!continuous) {
+                stopped();
+            }
         }
     }
 
@@ -225,8 +236,8 @@ public abstract class TDReplicator extends Observable {
         String urlStr = remote.toExternalForm() + relativePath;
         try {
             URL url = new URL(urlStr);
-            TDRemoteRequest request = new TDRemoteRequest(db.getHandler(), clientFacotry, method, url, body, onCompletion);
-            request.start();
+            TDRemoteRequest request = new TDRemoteRequest(workExecutor, clientFacotry, method, url, body, onCompletion);
+            remoteRequestExecutor.execute(request);
         } catch (MalformedURLException e) {
             Log.e(TDDatabase.TAG, "Malformed URL for async request", e);
         }
@@ -264,7 +275,7 @@ public abstract class TDReplicator extends Observable {
         sendAsyncRequest("GET", "/_local/" + remoteCheckpointDocID(), null, new TDRemoteRequestCompletionBlock() {
 
             @Override
-            public void onCompletion(Object result, Throwable e) {
+            public void onCompletion(Object result, String path, Throwable e) {
                 if(e != null && e instanceof HttpResponseException && ((HttpResponseException)e).getStatusCode() != 404) {
                     error = e;
                 } else {
@@ -320,7 +331,7 @@ public abstract class TDReplicator extends Observable {
         sendAsyncRequest("PUT", "/_local/" + remoteCheckpointDocID, body, new TDRemoteRequestCompletionBlock() {
 
             @Override
-            public void onCompletion(Object result, Throwable e) {
+            public void onCompletion(Object result, String path, Throwable e) {
             	savingCheckpoint = false;
                 if(e != null) {
                     Log.v(TDDatabase.TAG, this + ": Unable to save remote checkpoint", e);

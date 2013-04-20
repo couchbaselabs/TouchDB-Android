@@ -26,11 +26,20 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 import org.codehaus.jackson.map.ObjectMapper;
 
+import android.util.Log;
+
 import com.couchbase.touchdb.support.HttpClientFactory;
+import com.couchbase.touchdb.support.ReplicationCallback;
 
 /**
  * Manages a directory containing TDDatabases.
@@ -39,16 +48,27 @@ public class TDServer {
 
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    public static final String LEGAL_CHARACTERS = "[^a-z]{1,}[^a-z0-9_$()/+-]*$";
+    public static final String LEGAL_CHARACTERS = "abcdefghijklmnopqrstuvwxyz0123456789_$()+-/";
     public static final String DATABASE_SUFFIX = ".touchdb";
+    private ReplicationCallback callback;
 
     private File directory;
     private Map<String, TDDatabase> databases;
 
     private HttpClientFactory defaultHttpClientFactory;
 
+    private ScheduledExecutorService workExecutor;
+
     public static ObjectMapper getObjectMapper() {
         return mapper;
+    }
+    
+    public void setReplicationCallback(ReplicationCallback cb) {
+    	callback = cb;
+    }
+    
+    public ReplicationCallback getReplicationCallback() {
+    	return callback;
     }
 
     public TDServer(String directoryName) throws IOException {
@@ -62,10 +82,12 @@ public class TDServer {
                 throw new IOException("Unable to create directory " + directory);
             }
         }
+
+        workExecutor = Executors.newSingleThreadScheduledExecutor();
     }
 
     private String pathForName(String name) {
-        if((name == null) || (name.length() == 0) || Pattern.matches(LEGAL_CHARACTERS, name)) {
+        if((name == null) || (name.length() == 0) || Pattern.matches("^" + LEGAL_CHARACTERS, name) || !Character.isLowerCase(name.charAt(0))) {
             return null;
         }
         name = name.replace('/', ':');
@@ -138,10 +160,40 @@ public class TDServer {
     }
 
     public void close() {
-        for (TDDatabase database : databases.values()) {
-            database.close();
-        }
-        databases.clear();
+        Future<?> closeFuture = workExecutor.submit(new Runnable() {
+
+			@Override
+			public void run() {
+		        for (TDDatabase database : databases.values()) {
+		            database.close();
+		        }
+		        databases.clear();
+			}
+		});
+
+        try {
+			closeFuture.get();
+
+			// FIXME not happy with this solution, but it helps to
+			// avoid accumulating lots of these
+			// now schedule ourselves to shutdown after 60 second delay
+			// enough time for the remaining tasks to be scheduled
+			workExecutor.schedule(new Runnable() {
+
+				@Override
+				public void run() {
+					Log.v(TDDatabase.TAG, "Shutting Down");
+					workExecutor.shutdown();
+				}
+			}, 60, TimeUnit.SECONDS);
+
+		} catch (Exception e) {
+			Log.e(TDDatabase.TAG, "Exception while closing", e);
+		}
+    }
+
+    public ScheduledExecutorService getWorkExecutor() {
+        return workExecutor;
     }
 
     public HttpClientFactory getDefaultHttpClientFactory() {

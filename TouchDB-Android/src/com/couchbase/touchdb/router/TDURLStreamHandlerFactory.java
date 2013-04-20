@@ -19,7 +19,7 @@ public class TDURLStreamHandlerFactory implements URLStreamHandlerFactory {
 
     public static void registerSelfIgnoreError() {
         try {
-            URL.setURLStreamHandlerFactory(new TDURLStreamHandlerFactory());
+        	URL.setURLStreamHandlerFactory(new TDURLStreamHandlerFactory());
         } catch (Error e) {
             //usually you should never catch an Error
             //but I can't see how to avoid this
