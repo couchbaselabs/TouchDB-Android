@@ -1416,7 +1416,7 @@ public class TDDatabase extends Observable {
     	String path;
         String[] args = { docId, filename };
         try {
-            cursor = database.rawQuery("SELECT key, type FROM attachments WHERE docid=? AND filename=?", args);
+            cursor = database.rawQuery("SELECT key, type FROM attachments WHERE docid=? AND filename=? ORDER BY SEQUENCE DESC", args);
 
             if(!cursor.moveToFirst()) {
                 status.setCode(TDStatus.NOT_FOUND);
@@ -1445,7 +1445,7 @@ public class TDDatabase extends Observable {
 
         String[] args = { docId, filename };
         try {
-            cursor = database.rawQuery("SELECT key, type, revpos FROM attachments WHERE docid=? AND filename=?", args);
+            cursor = database.rawQuery("SELECT key, type, revpos FROM attachments WHERE docid=? AND filename=? ORDER BY SEQUENCE DESC", args);
 
             if(!cursor.moveToFirst()) {
                 status.setCode(TDStatus.NOT_FOUND);
@@ -1478,7 +1478,7 @@ public class TDDatabase extends Observable {
 
         String[] args = { docId, filename };
         try {
-            cursor = database.rawQuery("SELECT key, type FROM attachments WHERE docId=? AND filename=?", args);
+            cursor = database.rawQuery("SELECT key, type FROM attachments WHERE docId=? AND filename=? ORDER BY SEQUENCE DESC", args);
 
             if(!cursor.moveToFirst()) {
             	Log.e(TDDatabase.TAG, "Attachment "+filename+" could not be found in document "+docId);
