@@ -1,3 +1,4 @@
+[![Build Status](https://travis-ci.org/jdhorner/TouchDB-Android.png?branch=jenkins_setup)](https://travis-ci.org/jdhorner/TouchDB-Android)
 # TouchDB-Android #
 
 by Marty Schoch (marty@couchbase.com)
