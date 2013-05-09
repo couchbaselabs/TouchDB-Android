@@ -1,0 +1,51 @@
+language: java
+
+jdk: oraclejdk7
+
+# whitelist
+branches:
+  only:
+    - jenkins_setup
+
+env:
+  - ANDROID_SDKS=android-17,sysimg-17  ANDROID_TARGET=android-17  ANDROID_ABI=armeabi-v7a
+
+before_install:
+  # fix the 64bit box
+  - sudo apt-get update -qq
+  - if [ `uname -m` = x86_64 ]; then sudo apt-get install -qq --force-yes libgd2-xpm ia32-libs ia32-libs-multiarch; fi
+
+  # download the latest android sdk and unzip
+  - wget http://dl.google.com/android/android-sdk_r21.1-linux.tgz
+  - tar -zxf android-sdk_r21.1-linux.tgz
+
+  # setup your ANDROID_HOME and PATH environment variables
+  # use ~/builds/[Github username]/[project]/android-sdk-linux
+  - export ANDROID_HOME=`pwd`/android-sdk-linux
+  - export PATH=${PATH}:${ANDROID_HOME}/tools:${ANDROID_HOME}/platform-tools
+
+  # Download the android sdk we need
+  # Android Platform tools, required to compile
+  # TOOLS=$(android list sdk --no-ui | grep "Android SDK Platform-tools" | cut -d"-" -f1)
+  # android update sdk --filter "$TOOLS" --no-ui --force
+
+  # API 16 stuff which needs to be provided
+  # SDK=$(android list sdk --no-ui | grep ", API 17," | cut -d"-" -f1)
+  # android update sdk --filter "$SDK" --no-ui --force
+  - android update sdk --filter platform-tools,extra-android-support,$ANDROID_SDKS --no-ui --force 
+
+  # Create and start emulator
+  - echo no | android create avd --force -n test -t $ANDROID_TARGET --abi $ANDROID_ABI
+  - emulator -avd test -no-skin -no-audio -no-window -no-boot-anim &
+
+before_script:
+  # Make sure the emulator has started before running tests
+  # ./wait_for_emulator
+  - android update project --target android-17 --path ./TouchDB-Android-SampleClient
+  - android update lib-project --target android-17 --path ./TouchDB-Android
+  - android update lib-project --target android-17 --path ./TouchDB-Android-Listener
+  - android update lib-project --target android-17 --path ./TouchDB-Android-JavaScript
+  - android update lib-project --target android-17 --path ./TouchDB-Android-Ektorp
+  - android update test-project --path ./TouchDB-Android-TestApp --main ../TouchDB-Android-SampleClient
+  - cd TouchDB-Android-TestApp/
+  - ant clean debug install
