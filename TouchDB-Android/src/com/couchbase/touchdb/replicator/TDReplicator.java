@@ -51,6 +51,8 @@ public abstract class TDReplicator extends Observable {
 
 	protected static final int PROCESSOR_DELAY = 500;
 	protected static final int INBOX_CAPACITY = 100;
+	
+	protected String access_token = null;
 
 	private class PendingChanges implements Runnable {
 
@@ -66,15 +68,16 @@ public abstract class TDReplicator extends Observable {
 		}
 	};
 
-	public TDReplicator(TDDatabase db, URL remote, boolean continuous) {
-		this(db, remote, continuous, null);
+	public TDReplicator(TDDatabase db, URL remote, String access_token, boolean continuous) {
+		this(db, remote, access_token, continuous, null);
 	}
 
-	public TDReplicator(TDDatabase db, URL remote, boolean continuous,
+	public TDReplicator(TDDatabase db, URL remote, String access_token, boolean continuous,
 			HttpClientFactory clientFacotry) {
 
 		this.db = db;
 		this.remote = remote;
+		this.access_token = access_token;
 		this.continuous = continuous;
 		this.handler = db.getHandler();
 

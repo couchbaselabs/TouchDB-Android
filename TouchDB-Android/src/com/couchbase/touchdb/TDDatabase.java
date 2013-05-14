@@ -2272,18 +2272,18 @@ public class TDDatabase extends Observable {
         return null;
     }
 
-    public TDReplicator getReplicator(URL remote, boolean push, boolean continuous) {
-    	TDReplicator replicator = getReplicator(remote, null, push, continuous);
+    public TDReplicator getReplicator(URL remote, boolean push, String access_token, boolean continuous) {
+    	TDReplicator replicator = getReplicator(remote, null, push, access_token, continuous);
 
     	return replicator;
     }
 
-    public TDReplicator getReplicator(URL remote, HttpClientFactory httpClientFactory, boolean push, boolean continuous) {
+    public TDReplicator getReplicator(URL remote, HttpClientFactory httpClientFactory, boolean push,String access_token, boolean continuous) {
         TDReplicator result = getActiveReplicator(remote, push);
         if(result != null) {
             return result;
         }
-        result = push ? new TDPusher(this, remote, continuous, httpClientFactory) : new TDPuller(this, remote, continuous, httpClientFactory);
+        result = push ? new TDPusher(this, remote, access_token, continuous, httpClientFactory) : new TDPuller(this, remote, access_token,continuous, httpClientFactory);
 
         if(activeReplicators == null) {
             activeReplicators = new ArrayList<TDReplicator>();

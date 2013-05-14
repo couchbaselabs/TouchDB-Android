@@ -512,6 +512,7 @@ public class TDRouter implements Observer {
         boolean continuous = (continuousBoolean != null && continuousBoolean.booleanValue());
         Boolean cancelBoolean = (Boolean)body.get("cancel");
         boolean cancel = (cancelBoolean != null && cancelBoolean.booleanValue());
+        String access_token = (String) ((Map<String,Object>)body.get("query_params")).get("access_token");
 
         // Map the 'source' and 'target' JSON params to a local database and remote URL:
         if(source == null || target == null) {
@@ -550,7 +551,7 @@ public class TDRouter implements Observer {
 
         if(!cancel) {
             // Start replication:
-            TDReplicator repl = db.getReplicator(remote, server.getDefaultHttpClientFactory(), push, continuous);
+            TDReplicator repl = db.getReplicator(remote, server.getDefaultHttpClientFactory(), push, access_token, continuous);
             if(repl == null) {
                 return new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
             }
