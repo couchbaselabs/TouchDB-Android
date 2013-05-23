@@ -7,6 +7,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ScheduledExecutorService;
 
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.HttpResponseException;
@@ -28,6 +29,7 @@ import com.couchbase.touchdb.support.HttpClientFactory;
 import com.couchbase.touchdb.support.TDBatchProcessor;
 import com.couchbase.touchdb.support.TDBatcher;
 import com.couchbase.touchdb.support.TDRemoteRequestCompletionBlock;
+import com.couchbase.touchdb.support.TDSequenceMap;
 
 public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 
@@ -38,24 +40,26 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 	protected long nextFakeSequence;
 	protected long maxInsertedFakeSequence;
 	protected TDChangeTracker changeTracker;
+	protected TDSequenceMap pendingSequences;
 
 	protected int httpConnectionCount;
 
 	public TDPuller(TDDatabase db, URL remote, String access_token,
-			boolean continuous) {
-		this(db, remote, access_token, continuous, null);
+			boolean continuous, ScheduledExecutorService workExecutor) {
+		this(db, remote, access_token, continuous, null, workExecutor);
 	}
 
 	public TDPuller(TDDatabase db, URL remote, String access_token,
-			boolean continuous, HttpClientFactory clientFactory) {
-		super(db, remote, access_token, continuous, clientFactory);
+			boolean continuous, HttpClientFactory clientFactory,
+			ScheduledExecutorService workExecutor) {
+		super(db, remote, access_token, continuous, clientFactory, workExecutor);
 	}
 
 	@Override
 	public void beginReplicating() {
 		if (downloadsToInsert == null) {
-			downloadsToInsert = new TDBatcher<List<Object>>(db.getHandler(),
-					200, 1000, new TDBatchProcessor<List<Object>>() {
+			downloadsToInsert = new TDBatcher<List<Object>>(workExecutor, 200,
+					1000, new TDBatchProcessor<List<Object>>() {
 						@Override
 						public void process(List<List<Object>> inbox) {
 							insertRevisions(inbox);
@@ -162,9 +166,9 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 		// error = tracker.getError();
 		// }
 		changeTracker = null;
-		// if(batcher != null) {
-		// batcher.flush();
-		// }
+		if (batcher != null) {
+			batcher.flush();
+		}
 
 		asyncTaskFinished(1);
 	}
@@ -184,32 +188,31 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 		// Ask the local database which of the revs are not known to it:
 		// Log.w(TDDatabase.TAG, String.format("%s: Looking up %s", this,
 		// inbox));
-		// We have already updated the sequence
-		// String lastInboxSequence =
-		// ((TDPulledRevision)inbox.get(inbox.size()-1)).getRemoteSequenceID();
+		String lastInboxSequence = ((TDPulledRevision) inbox
+				.get(inbox.size() - 1)).getRemoteSequenceID();
 		int total = getChangesTotal() - inbox.size();
-
-		// Seems to use up a lot of memory
-		// if(!db.findMissingRevisions(inbox)) {
-		// Log.w(TDDatabase.TAG,
-		// String.format("%s failed to look up local revs", this));
-		// inbox = null;
-		// }
+		if (!db.findMissingRevisions(inbox)) {
+			Log.w(TDDatabase.TAG,
+					String.format("%s failed to look up local revs", this));
+			inbox = null;
+		}
 		// introducing this to java version since inbox may now be null
 		// everywhere
 		int inboxCount = 0;
 		if (inbox != null) {
 			inboxCount = inbox.size();
 		}
-		// if(getChangesTotal() != total + inboxCount) {
-		// setChangesTotal(total + inboxCount);
-		// }
+		if (getChangesTotal() != total + inboxCount) {
+			setChangesTotal(total + inboxCount);
+		}
 
 		if (inboxCount == 0) {
 			// Nothing to do. Just bump the lastSequence.
 			Log.w(TDDatabase.TAG,
 					String.format("%s no new remote revisions to fetch", this));
-			// setLastSequence(lastInboxSequence);
+			long seq = pendingSequences.addValue(lastInboxSequence);
+			pendingSequences.removeSequence(seq);
+			setLastSequence(pendingSequences.getCheckpointedValue());
 			return;
 		}
 
@@ -219,38 +222,45 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 		// String.format("%s fetching remote revisions %s", this, inbox));
 
 		// Dump the revs into the queue of revs to pull from the remote db:
-		if (revsToPull == null) {
-			revsToPull = new ArrayList<TDRevision>(200);
+		synchronized (this) {
+			if (revsToPull == null) {
+				revsToPull = new ArrayList<TDRevision>(200);
+			}
+
+			for (int i = 0; i < inbox.size(); i++) {
+				TDPulledRevision rev = (TDPulledRevision) inbox.get(i);
+				// FIXME add logic here to pull initial revs in bulk
+				rev.setSequence(pendingSequences.addValue(rev
+						.getRemoteSequenceID()));
+				revsToPull.add(rev);
+			}
 		}
-		revsToPull.addAll(inbox);
 
 		pullRemoteRevisions();
-
-		// TEST
-		// adding wait here to prevent revsToPull from getting too large
-		// while(revsToPull != null && revsToPull.size() > 1000) {
-		// pullRemoteRevisions();
-		// try {
-		// Thread.sleep(500);
-		// } catch (InterruptedException e) {
-		// //wake up
-		// }
-		// }
 	}
 
 	/**
 	 * Start up some HTTP GETs, within our limit on the maximum simultaneous
 	 * number
 	 * 
-	 * Needs to be synchronized because multiple RemoteRequest theads call this
-	 * upon completion to keep the process moving, need to synchronize check for
-	 * size with removal
+	 * The entire method is not synchronized, only the portion pulling work off
+	 * the list Important to not hold the synchronized block while we do network
+	 * access
 	 */
-	public synchronized void pullRemoteRevisions() {
-		while (httpConnectionCount < MAX_OPEN_HTTP_CONNECTIONS
-				&& revsToPull != null && revsToPull.size() > 0) {
-			pullRemoteRevision(revsToPull.get(0));
-			revsToPull.remove(0);
+	public void pullRemoteRevisions() {
+		// find the work to be done in a synchronized block
+		List<TDRevision> workToStartNow = new ArrayList<TDRevision>();
+		synchronized (this) {
+			while (httpConnectionCount + workToStartNow.size() < MAX_OPEN_HTTP_CONNECTIONS
+					&& revsToPull != null && revsToPull.size() > 0) {
+				TDRevision work = revsToPull.remove(0);
+				workToStartNow.add(work);
+			}
+		}
+
+		// actually run it outside the synchronized block
+		for (TDRevision work : workToStartNow) {
+			pullRemoteRevision(work);
 		}
 	}
 
@@ -283,8 +293,6 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 			path.append("&atts_since=");
 			path.append(joinQuotedEscaped(knownRevs));
 		}
-		
-		path.append("&access_token=").append(access_token);
 
 		// create a final version of this variable for the log statement inside
 		// FIXME find a way to avoid this
@@ -317,6 +325,8 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 							}
 						} else {
 							if (e != null) {
+								Log.e(TDDatabase.TAG,
+										"Error pulling remote revision", e);
 								error = e;
 							}
 							setChangesProcessed(getChangesProcessed() + 1);
@@ -368,17 +378,16 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 
 		});
 
-		boolean allGood = true;
-		// TDPulledRevision lastGoodRev = null;
-
 		if (db == null) {
+			asyncTaskFinished(revs.size());
 			return;
 		}
 		db.beginTransaction();
 		boolean success = false;
 		try {
 			for (List<Object> revAndHistory : revs) {
-				TDRevision rev = (TDRevision) revAndHistory.get(0);
+				TDPulledRevision rev = (TDPulledRevision) revAndHistory.get(0);
+				long fakeSequence = rev.getSequence();
 				List<String> history = (List<String>) revAndHistory.get(1);
 				// Insert the revision:
 				TDStatus status = db.forceInsert(rev, history, remote);
@@ -391,28 +400,18 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 								+ ": status=" + status.getCode());
 						error = new HttpResponseException(status.getCode(),
 								null);
-						allGood = false; // stop advancing lastGoodRev
+						continue;
 					}
 				}
 
-				// Remove the replicator_log entry for the remote,push,docid,rev
-				removeLogForRevision(rev);
-
-				if (allGood) {
-					// lastGoodRev = rev;
-				}
+				pendingSequences.removeSequence(fakeSequence);
 			}
-
-			// Now update lastSequence from the latest consecutively inserted
-			// revision:
-			// long lastGoodFakeSequence = lastGoodRev.getSequence();
-			// if(lastGoodFakeSequence > maxInsertedFakeSequence) {
-			// maxInsertedFakeSequence = lastGoodFakeSequence;
-			// setLastSequence(lastGoodRev.getRemoteSequenceID());
-			// }
 
 			Log.w(TDDatabase.TAG, this + " finished inserting " + revs.size()
 					+ " revisions");
+
+			setLastSequence(pendingSequences.getCheckpointedValue());
+
 			success = true;
 		} catch (SQLException e) {
 			Log.w(TDDatabase.TAG, this + ": Exception inserting revisions", e);

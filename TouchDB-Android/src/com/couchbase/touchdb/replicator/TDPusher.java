@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Observable;
 import java.util.Observer;
+import java.util.concurrent.ScheduledExecutorService;
 
 import org.apache.http.client.HttpResponseException;
 
@@ -28,13 +29,14 @@ public class TDPusher extends TDReplicator implements Observer {
 	private TDFilterBlock filter;
 
 	public TDPusher(TDDatabase db, URL remote, String access_token,
-			boolean continuous) {
-		this(db, remote, access_token, continuous, null);
+			boolean continuous, ScheduledExecutorService workExecutor) {
+		this(db, remote, access_token, continuous, null, workExecutor);
 	}
 
 	public TDPusher(TDDatabase db, URL remote, String access_token,
-			boolean continuous, HttpClientFactory clientFactory) {
-		super(db, remote, access_token, continuous, clientFactory);
+			boolean continuous, HttpClientFactory clientFactory,
+			ScheduledExecutorService workExecutor) {
+		super(db, remote, access_token, continuous, clientFactory, workExecutor);
 		createTarget = false;
 		observing = false;
 	}
@@ -184,8 +186,8 @@ public class TDPusher extends TDReplicator implements Observer {
 
 		// Call _revs_diff on the target db:
 		asyncTaskStarted();
-		sendAsyncRequest("POST", "/_revs_diff?access_token=" + access_token, diffs,
-				new TDRemoteRequestCompletionBlock() {
+		sendAsyncRequest("POST", "/_revs_diff?access_token=" + access_token,
+				diffs, new TDRemoteRequestCompletionBlock() {
 
 					@Override
 					public void onCompletion(Object response, Throwable e) {
@@ -266,7 +268,8 @@ public class TDPusher extends TDReplicator implements Observer {
 									"%s: Sending %s", this, inbox));
 							setChangesTotal(getChangesTotal() + numDocsToSend);
 							asyncTaskStarted();
-							sendAsyncRequest("POST", "/_bulk_docs?access_token=" + access_token,
+							sendAsyncRequest("POST",
+									"/_bulk_docs?access_token=" + access_token,
 									bulkDocsBody,
 									new TDRemoteRequestCompletionBlock() {
 
