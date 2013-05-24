@@ -3,8 +3,8 @@
 	<classpathentry kind="src" path="src"/>
 	<classpathentry kind="src" path="gen"/>
 	<classpathentry kind="con" path="com.android.ide.eclipse.adt.ANDROID_FRAMEWORK"/>
-	<classpathentry combineaccessrules="false" kind="src" path="/org.ektorp"/>
-	<classpathentry combineaccessrules="false" kind="src" path="/org.ektorp.android"/>
+	<classpathentry combineaccessrules="false" exported="true" kind="src" path="/org.ektorp"/>
+	<classpathentry combineaccessrules="false" exported="true" kind="src" path="/org.ektorp.android"/>
 	<classpathentry kind="lib" path="libs/jackson-core-asl-1.9.2.jar"/>
 	<classpathentry kind="lib" path="libs/jackson-mapper-asl-1.9.2.jar"/>
 	<classpathentry kind="output" path="bin/classes"/>

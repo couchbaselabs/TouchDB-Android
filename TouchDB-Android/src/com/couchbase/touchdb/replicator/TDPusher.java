@@ -81,6 +81,8 @@ public class TDPusher extends TDReplicator implements Observer {
 
 	@Override
 	public void beginReplicating() {
+		super.beginReplicating();
+		
 		// If we're still waiting to create the remote db, do nothing now. (This
 		// method will be
 		// re-invoked after that request finishes; see maybeCreateRemoteDB()

@@ -5,6 +5,7 @@ import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
@@ -15,7 +16,6 @@ import org.apache.http.client.HttpResponseException;
 import android.database.SQLException;
 import android.util.Log;
 
-import com.couchbase.touchdb.TDBody;
 import com.couchbase.touchdb.TDDatabase;
 import com.couchbase.touchdb.TDMisc;
 import com.couchbase.touchdb.TDRevision;
@@ -29,7 +29,6 @@ import com.couchbase.touchdb.support.HttpClientFactory;
 import com.couchbase.touchdb.support.TDBatchProcessor;
 import com.couchbase.touchdb.support.TDBatcher;
 import com.couchbase.touchdb.support.TDRemoteRequestCompletionBlock;
-import com.couchbase.touchdb.support.TDSequenceMap;
 
 public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 
@@ -40,7 +39,6 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 	protected long nextFakeSequence;
 	protected long maxInsertedFakeSequence;
 	protected TDChangeTracker changeTracker;
-	protected TDSequenceMap pendingSequences;
 
 	protected int httpConnectionCount;
 
@@ -57,6 +55,8 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 
 	@Override
 	public void beginReplicating() {
+		super.beginReplicating();
+
 		if (downloadsToInsert == null) {
 			downloadsToInsert = new TDBatcher<List<Object>>(workExecutor, 200,
 					1000, new TDBatchProcessor<List<Object>>() {
@@ -119,42 +119,55 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 	// Got a _changes feed entry from the TDChangeTracker.
 	@Override
 	public void changeTrackerReceivedChange(Map<String, Object> change) {
-		String lastSequence = change.get("seq").toString();
-		String docID = (String) change.get("id");
-		if (docID == null) {
-			return;
-		}
-		if (!TDDatabase.isValidDocumentId(docID)) {
-			Log.w(TDDatabase.TAG, String.format(
-					"%s: Received invalid doc ID from _changes: %s", this,
-					change));
-			return;
-		}
-		boolean deleted = (change.containsKey("deleted") && ((Boolean) change
-				.get("deleted")).equals(Boolean.TRUE));
-		List<Map<String, Object>> changes = (List<Map<String, Object>>) change
-				.get("changes");
-		ArrayList<TDRevision> revs = new ArrayList<TDRevision>();
-		for (Map<String, Object> changeDict : changes) {
-			String revID = (String) changeDict.get("rev");
-			if (revID == null) {
-				continue;
+		// When there are no changes, we just send an empty map back
+		if (change.containsKey("id")) {
+			String lastSequence = change.get("seq").toString();
+			String docID = (String) change.get("id");
+			if (docID == null) {
+				return;
 			}
-			TDPulledRevision rev = new TDPulledRevision(docID, revID, deleted);
-			rev.setRemoteSequenceID(lastSequence);
-			rev.setSequence(++nextFakeSequence);
-			// addToInbox(rev);
-			revs.add(rev);
-		}
-		if (logRevisions(revs)) {
-			setChangesTotal(getChangesTotal() + changes.size());
+			if (!TDDatabase.isValidDocumentId(docID)) {
+				Log.w(TDDatabase.TAG, String.format(
+						"%s: Received invalid doc ID from _changes: %s", this,
+						change));
+				return;
+			}
+			boolean deleted = (change.containsKey("deleted") && ((Boolean) change
+					.get("deleted")).equals(Boolean.TRUE));
+			List<Map<String, Object>> changes = (List<Map<String, Object>>) change
+					.get("changes");
+			ArrayList<TDRevision> revs = new ArrayList<TDRevision>();
+			for (Map<String, Object> changeDict : changes) {
+				String revID = (String) changeDict.get("rev");
+				if (revID == null) {
+					continue;
+				}
+				TDRevision rev = new TDRevision(docID, revID, deleted);
+				// rev.setRemoteSequenceID(lastSequence);
+				rev.setSequence(++nextFakeSequence);
+				// addToInbox(rev);
+				revs.add(rev);
+			}
+			if (logRevisions(revs)) {
+				setChangesTotal(getChangesTotal() + changes.size());
 
-			// We set the sequence to ensure that changes tracker keeps
-			// moving forward. The docs pull eventually catches up. Filters
-			// are quite slow on CouchDB if you are pulling changes
-			// from the beginning, we want to retain as much progress we have
-			// made as possible
-			setLastSequence(lastSequence);
+				// We set the sequence to ensure that changes tracker keeps
+				// moving forward. The docs pull eventually catches up. Filters
+				// are quite slow on CouchDB if you are pulling changes
+				// from the beginning, we want to retain as much progress we
+				// have
+				// made as possible
+				setLastSequence(lastSequence);
+			}
+		}
+
+		// This is useful for the first run after the replicator starts
+		synchronized (pending_changes_running) {
+			if (!pending_changes_running.get()) {
+				pending_changes_running.set(true);
+				Log.d("ARTOOREFILLER", "Called by ChangeTracker");
+				scheduleRefiller();
+			}
 		}
 	}
 
@@ -166,9 +179,9 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 		// error = tracker.getError();
 		// }
 		changeTracker = null;
-		if (batcher != null) {
-			batcher.flush();
-		}
+		// if (batcher != null) {
+		// batcher.flush();
+		// }
 
 		asyncTaskFinished(1);
 	}
@@ -188,8 +201,8 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 		// Ask the local database which of the revs are not known to it:
 		// Log.w(TDDatabase.TAG, String.format("%s: Looking up %s", this,
 		// inbox));
-		String lastInboxSequence = ((TDPulledRevision) inbox
-				.get(inbox.size() - 1)).getRemoteSequenceID();
+		// String lastInboxSequence = ((TDPulledRevision) inbox
+		// .get(inbox.size() - 1)).getRemoteSequenceID();
 		int total = getChangesTotal() - inbox.size();
 		if (!db.findMissingRevisions(inbox)) {
 			Log.w(TDDatabase.TAG,
@@ -210,9 +223,9 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 			// Nothing to do. Just bump the lastSequence.
 			Log.w(TDDatabase.TAG,
 					String.format("%s no new remote revisions to fetch", this));
-			long seq = pendingSequences.addValue(lastInboxSequence);
-			pendingSequences.removeSequence(seq);
-			setLastSequence(pendingSequences.getCheckpointedValue());
+			// long seq = pendingSequences.addValue(lastInboxSequence);
+			// pendingSequences.removeSequence(seq);
+			// setLastSequence(pendingSequences.getCheckpointedValue());
 			return;
 		}
 
@@ -228,10 +241,10 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 			}
 
 			for (int i = 0; i < inbox.size(); i++) {
-				TDPulledRevision rev = (TDPulledRevision) inbox.get(i);
+				TDRevision rev = (TDRevision) inbox.get(i);
 				// FIXME add logic here to pull initial revs in bulk
-				rev.setSequence(pendingSequences.addValue(rev
-						.getRemoteSequenceID()));
+				// rev.setSequence(pendingSequences.addValue(rev
+				// .getRemoteSequenceID()));
 				revsToPull.add(rev);
 			}
 		}
@@ -248,6 +261,18 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 	 * access
 	 */
 	public void pullRemoteRevisions() {
+
+		// If we don't have any remote revisions, refill again
+		if (revsToPull.size() == 0) {
+			Log.d("ARTOOREFILLER", "Called by pullRemoteRevisions");
+			scheduleRefiller(new Date().getTime());
+		} else {
+			// resets the counter
+			// synchronized (refiller_scheduled) {
+			refiller_scheduled.set(false);
+			// }
+		}
+
 		// find the work to be done in a synchronized block
 		List<TDRevision> workToStartNow = new ArrayList<TDRevision>();
 		synchronized (this) {
@@ -269,6 +294,8 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 	 * parent revision ID. The contents are stored into rev.properties.
 	 */
 	public void pullRemoteRevision(final TDRevision rev) {
+		updateLogRevision(rev, new Date().getTime());
+
 		asyncTaskStarted();
 		++httpConnectionCount;
 
@@ -293,6 +320,8 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 			path.append("&atts_since=");
 			path.append(joinQuotedEscaped(knownRevs));
 		}
+
+		path.append("&access_token=").append(access_token);
 
 		// create a final version of this variable for the log statement inside
 		// FIXME find a way to avoid this
@@ -340,7 +369,6 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 						pullRemoteRevisions();
 					}
 				});
-
 	}
 
 	/**
@@ -386,7 +414,7 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 		boolean success = false;
 		try {
 			for (List<Object> revAndHistory : revs) {
-				TDPulledRevision rev = (TDPulledRevision) revAndHistory.get(0);
+				TDRevision rev = (TDRevision) revAndHistory.get(0);
 				long fakeSequence = rev.getSequence();
 				List<String> history = (List<String>) revAndHistory.get(1);
 				// Insert the revision:
@@ -402,15 +430,13 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 								null);
 						continue;
 					}
+				} else {
+					removeLogForRevision(rev);
 				}
-
-				pendingSequences.removeSequence(fakeSequence);
 			}
 
 			Log.w(TDDatabase.TAG, this + " finished inserting " + revs.size()
 					+ " revisions");
-
-			setLastSequence(pendingSequences.getCheckpointedValue());
 
 			success = true;
 		} catch (SQLException e) {
@@ -442,36 +468,6 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 			Log.w(TDDatabase.TAG, "Unable to serialize json", e);
 		}
 		return URLEncoder.encode(new String(json));
-	}
-
-}
-
-/**
- * A revision received from a remote server during a pull. Tracks the opaque
- * remote sequence ID.
- */
-class TDPulledRevision extends TDRevision {
-
-	public TDPulledRevision(TDBody body) {
-		super(body);
-	}
-
-	public TDPulledRevision(String docId, String revId, boolean deleted) {
-		super(docId, revId, deleted);
-	}
-
-	public TDPulledRevision(Map<String, Object> properties) {
-		super(properties);
-	}
-
-	protected String remoteSequenceID;
-
-	public String getRemoteSequenceID() {
-		return remoteSequenceID;
-	}
-
-	public void setRemoteSequenceID(String remoteSequenceID) {
-		this.remoteSequenceID = remoteSequenceID;
 	}
 
 }

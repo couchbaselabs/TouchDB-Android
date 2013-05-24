@@ -7,6 +7,7 @@ import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -213,18 +214,33 @@ public class TDChangeTracker implements Runnable {
 					try {
 						InputStream input = entity.getContent();
 						if (mode == TDChangeTrackerMode.LongPoll) {
-							Map<String, Object> fullBody = TDServer
-									.getObjectMapper().readValue(input,
-											Map.class);
-							boolean responseOK = receivedPollResponse(fullBody);
-							if (mode == TDChangeTrackerMode.LongPoll
-									&& responseOK) {
-								Log.v(TDDatabase.TAG, "Starting new longpoll");
+							BufferedReader reader = new BufferedReader(
+									new InputStreamReader(input));
+							String line = null;
+							StringBuffer sb = new StringBuffer();
+							while ((line = reader.readLine()) != null) {
+								sb.append(line).append("\n");
+							}
+							String content = sb.toString();
+							if ("{\"results\":[".equals(content)) {
+								// No more pending changes; send an empty map
+								client.changeTrackerReceivedChange(new HashMap<String, Object>());
 								continue;
 							} else {
-								Log.w(TDDatabase.TAG,
-										"Change tracker calling stop");
-								stop();
+								Map<String, Object> fullBody = TDServer
+										.getObjectMapper().readValue(content,
+												Map.class);
+								boolean responseOK = receivedPollResponse(fullBody);
+								if (mode == TDChangeTrackerMode.LongPoll
+										&& responseOK) {
+									Log.v(TDDatabase.TAG,
+											"Starting new longpoll");
+									continue;
+								} else {
+									Log.w(TDDatabase.TAG,
+											"Change tracker calling stop");
+									stop();
+								}
 							}
 						} else {
 							BufferedReader reader = new BufferedReader(

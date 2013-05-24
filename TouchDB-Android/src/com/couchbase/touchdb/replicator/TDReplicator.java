@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.HttpResponseException;
@@ -57,6 +58,8 @@ public abstract class TDReplicator extends Observable {
 	protected static final int INBOX_CAPACITY = 100;
 
 	protected String access_token = null;
+	protected AtomicBoolean pending_changes_running = new AtomicBoolean(false);
+	protected AtomicBoolean refiller_scheduled = new AtomicBoolean(false);
 
 	private ExecutorService remoteRequestExecutor;
 
@@ -82,8 +85,6 @@ public abstract class TDReplicator extends Observable {
 
 					@Override
 					public void process(List<TDRevision> inbox) {
-						inbox = TDReplicator.this.db.getPendingRevisions(
-								getRemote(), isPush());
 						Log.v(TDDatabase.TAG, "*** " + toString()
 								+ ": BEGIN processInbox (" + inbox.size()
 								+ " sequences)");
@@ -121,9 +122,6 @@ public abstract class TDReplicator extends Observable {
 	}
 
 	public void databaseClosing() {
-		// if (pendingChanges != null) {
-		// this.handler.removeCallbacks(pendingChanges);
-		// }
 		saveLastSequence();
 		stop();
 		db = null;
@@ -201,7 +199,9 @@ public abstract class TDReplicator extends Observable {
 		fetchRemoteCheckpointDoc();
 	}
 
-	public abstract void beginReplicating();
+	public void beginReplicating() {
+		// scheduleRefiller();
+	}
 
 	public void stop() {
 		if (!running) {
@@ -281,8 +281,12 @@ public abstract class TDReplicator extends Observable {
 		return this.db.logRevision(this.remote, isPush(), rev);
 	}
 
-	public List<TDRevision> getPendingRevisions() {
-		return this.db.getPendingRevisions(this.remote, isPush());
+	public TDRevisionList getPendingRevisions(long lastUpdated) {
+		return this.db.getPendingRevisions(this.remote, isPush(), lastUpdated);
+	}
+
+	public void updateLogRevision(TDRevision rev, long lastUpdated) {
+		this.db.updateLogRevision(getRemote(), isPush(), rev, lastUpdated);
 	}
 
 	public void removeLogForRevision(TDRevision rev) {
@@ -414,6 +418,58 @@ public abstract class TDReplicator extends Observable {
 
 				});
 		db.setLastSequence(lastSequence, remote, isPush());
+	}
+
+	protected class Refill implements Runnable {
+
+		private long lastUpdated;
+
+		public Refill() {
+			this(-1);
+		}
+
+		public Refill(long lastUpdated) {
+			this.lastUpdated = lastUpdated;			
+		}
+
+		@Override
+		public void run() {			
+			TDRevisionList revisions = getPendingRevisions(lastUpdated);
+			if (revisions.size() > 0) {
+				synchronized (pending_changes_running) {
+					pending_changes_running.set(true);
+				}
+				for (TDRevision rev : revisions) {
+					batcher.queueObject(rev);
+				}
+			} else {
+				// The first time we start replication, we will have zero
+				// changes. We will need to kick start replication when
+				// changeTracker receives changes
+				synchronized (pending_changes_running) {
+					pending_changes_running.set(false);
+				}
+			}
+			// synchronized (refiller_scheduled) {
+			// refiller_scheduled.set(false);
+			// }
+		}
+	}
+
+	protected void scheduleRefiller() {
+		scheduleRefiller(-1);
+	}
+
+	protected void scheduleRefiller(long lastUpdated) {
+		synchronized (refiller_scheduled) {
+			if (!refiller_scheduled.get()) {
+				refiller_scheduled.set(true);
+				workExecutor.submit(new Refill(lastUpdated));
+				Log.d("ARTOOREFILLER","started with --" + lastUpdated);
+			} else {
+				Log.d("ARTOOREFILLER","Didn't start");
+			}
+		}
 	}
 
 }
