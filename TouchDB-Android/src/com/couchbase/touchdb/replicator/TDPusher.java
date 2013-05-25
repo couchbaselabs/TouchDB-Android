@@ -2,6 +2,7 @@ package com.couchbase.touchdb.replicator;
 
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -81,7 +82,6 @@ public class TDPusher extends TDReplicator implements Observer {
 
 	@Override
 	public void beginReplicating() {
-		super.beginReplicating();
 		
 		// If we're still waiting to create the remote db, do nothing now. (This
 		// method will be
@@ -125,6 +125,8 @@ public class TDPusher extends TDReplicator implements Observer {
 			asyncTaskStarted(); // prevents stopped() from being called when
 								// other tasks finish
 		}
+	
+		super.beginReplicating();
 	}
 
 	@Override
@@ -163,12 +165,16 @@ public class TDPusher extends TDReplicator implements Observer {
 			}
 		}
 
+		super.beginReplicating();
 	}
 
 	@Override
-	public void processInbox(final TDRevisionList inbox) {
+	public void processInbox(final TDRevisionList inbox) {		
 		if (inbox.size() == 0) {
+			scheduleRefiller();
 			return;
+		} else {
+			refiller_scheduled.set(false);
 		}
 
 		final long lastInboxSequence = inbox.get(inbox.size() - 1)
@@ -184,6 +190,7 @@ public class TDPusher extends TDReplicator implements Observer {
 				diffs.put(docID, revs);
 			}
 			revs.add(rev.getRevId());
+			updateLogRevision(rev, new Date().getTime());
 		}
 
 		// Call _revs_diff on the target db:
@@ -295,6 +302,8 @@ public class TDPusher extends TDReplicator implements Observer {
 											setChangesProcessed(getChangesProcessed()
 													+ numDocsToSend);
 											asyncTaskFinished(1);
+											
+											scheduleRefiller(new Date().getTime());
 										}
 									});
 
@@ -309,6 +318,8 @@ public class TDPusher extends TDReplicator implements Observer {
 								removeLogForRevision(rev);
 							}
 							db.endTransaction(true);
+							
+							scheduleRefiller(new Date().getTime());
 						}
 						asyncTaskFinished(1);
 					}

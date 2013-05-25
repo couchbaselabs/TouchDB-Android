@@ -222,7 +222,7 @@ public class TDChangeTracker implements Runnable {
 								sb.append(line).append("\n");
 							}
 							String content = sb.toString();
-							if ("{\"results\":[".equals(content)) {
+							if ("{\"results\":[".equals(content.trim())) {
 								// No more pending changes; send an empty map
 								client.changeTrackerReceivedChange(new HashMap<String, Object>());
 								continue;
@@ -231,8 +231,7 @@ public class TDChangeTracker implements Runnable {
 										.getObjectMapper().readValue(content,
 												Map.class);
 								boolean responseOK = receivedPollResponse(fullBody);
-								if (mode == TDChangeTrackerMode.LongPoll
-										&& responseOK) {
+								if (responseOK) {
 									Log.v(TDDatabase.TAG,
 											"Starting new longpoll");
 									continue;

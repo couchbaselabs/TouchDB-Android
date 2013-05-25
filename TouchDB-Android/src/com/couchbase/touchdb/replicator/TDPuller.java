@@ -55,7 +55,6 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 
 	@Override
 	public void beginReplicating() {
-		super.beginReplicating();
 
 		if (downloadsToInsert == null) {
 			downloadsToInsert = new TDBatcher<List<Object>>(workExecutor, 200,
@@ -161,14 +160,7 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 			}
 		}
 
-		// This is useful for the first run after the replicator starts
-		synchronized (pending_changes_running) {
-			if (!pending_changes_running.get()) {
-				pending_changes_running.set(true);
-				Log.d("ARTOOREFILLER", "Called by ChangeTracker");
-				scheduleRefiller();
-			}
-		}
+		super.beginReplicating();
 	}
 
 	@Override
@@ -182,6 +174,9 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 		// if (batcher != null) {
 		// batcher.flush();
 		// }
+
+		// If the tracker is not working we need to stop this replicator
+		stop();
 
 		asyncTaskFinished(1);
 	}

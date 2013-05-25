@@ -2441,8 +2441,8 @@ public class TDDatabase extends Observable {
 				url.toExternalForm(),
 				Integer.toString(push ? 1 : 0),
 				""
-						+ ((lastUpdated == -1 ? new Date().getTime()
-								: lastUpdated) - (60 * 1000)) };
+						+ (lastUpdated == -1 ? new Date().getTime()
+								: lastUpdated - (60 * 1000 * 5)) };
 		Cursor cursor = database
 				.rawQuery(
 						"SELECT docid, revid, deleted, sequence, lastUpdated FROM replicator_log WHERE (remote=? AND push=?) AND (lastUpdated IS NULL OR lastUpdated < ?) LIMIT 100",
@@ -2466,6 +2466,32 @@ public class TDDatabase extends Observable {
 			cursor.close();
 		}
 		return result;
+	}
+
+	public Map<String, Integer> getPendingRevisionStats() {
+
+		Cursor cursor = database
+				.rawQuery(
+						"SELECT push, count(*) FROM replicator_log group by push",
+						null);
+		HashMap<String, Integer> map = new HashMap<String, Integer>();
+		map.put("push", 0);
+		map.put("pull", 0);
+
+		if (cursor.moveToFirst()) {
+			do {
+				if (cursor.getInt(0) == 0) {
+					map.put("pull", cursor.getInt(1));
+				} else {
+					map.put("push", cursor.getInt(1));
+				}
+			} while (cursor.moveToNext());
+		}
+
+		if (cursor != null) {
+			cursor.close();
+		}
+		return map;
 	}
 
 	public boolean logRevision(URL url, boolean push, TDRevision rev) {
@@ -2533,6 +2559,21 @@ public class TDDatabase extends Observable {
 			}
 		}
 		// return success;
+	}
+
+	public void resetRevisions(URL url, boolean push) {
+		Object[] args = { url.toExternalForm(), Integer.toString(push ? 1 : 0) };
+
+		Cursor cursor = null;
+		try {
+			database.execSQL(
+					"UPDATE replicator_log SET lastUpdated = 0 WHERE remote=? AND push=?",
+					args);
+		} finally {
+			if (cursor != null) {
+				cursor.close();
+			}
+		}
 	}
 
 	public String lastSequenceWithRemoteURL(URL url, boolean push) {
