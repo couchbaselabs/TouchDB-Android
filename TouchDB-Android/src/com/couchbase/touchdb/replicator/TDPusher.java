@@ -150,7 +150,7 @@ public class TDPusher extends TDReplicator implements Observer {
 			Map<String, Object> change = (Map<String, Object>) data;
 			// Skip revisions that originally came from the database I'm syncing
 			// to:
-			URL source = (URL) change.get("source");
+			String source =  (String) change.get("source");
 			if (source != null && source.equals(remote.toExternalForm())) {
 				return;
 			}

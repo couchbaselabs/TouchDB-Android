@@ -413,7 +413,7 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 				long fakeSequence = rev.getSequence();
 				List<String> history = (List<String>) revAndHistory.get(1);
 				// Insert the revision:
-				TDStatus status = db.forceInsert(rev, history, remote);
+				TDStatus status = db.forceInsert(rev, history, remote.toExternalForm());
 				if (!status.isSuccessful()) {
 					if (status.getCode() == TDStatus.FORBIDDEN) {
 						Log.i(TDDatabase.TAG, this

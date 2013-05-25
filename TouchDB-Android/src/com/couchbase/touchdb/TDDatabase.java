@@ -1976,7 +1976,7 @@ public class TDDatabase extends Observable {
 		return json;
 	}
 
-	public void notifyChange(TDRevision rev, URL source) {
+	public void notifyChange(TDRevision rev, String source) {
 		Map<String, Object> changeNotification = new HashMap<String, Object>();
 		changeNotification.put("rev", rev);
 		changeNotification.put("seq", rev.getSequence());
@@ -2237,7 +2237,7 @@ public class TDDatabase extends Observable {
 	 * already exist locally will create phantom revisions with no content.
 	 */
 	public TDStatus forceInsert(TDRevision rev, List<String> revHistory,
-			URL source) {
+			String source) {
 
 		String docId = rev.getDocId();
 		String revId = rev.getRevId();
@@ -2445,7 +2445,7 @@ public class TDDatabase extends Observable {
 								: lastUpdated - (60 * 1000 * 5)) };
 		Cursor cursor = database
 				.rawQuery(
-						"SELECT docid, revid, deleted, sequence, lastUpdated FROM replicator_log WHERE (remote=? AND push=?) AND (lastUpdated IS NULL OR lastUpdated < ?) LIMIT 100",
+						"SELECT docid, revid, deleted, sequence, lastUpdated FROM replicator_log WHERE remote=? AND push=? AND lastUpdated < ? LIMIT 100",
 						args);
 		if (cursor.moveToFirst()) {
 			do {

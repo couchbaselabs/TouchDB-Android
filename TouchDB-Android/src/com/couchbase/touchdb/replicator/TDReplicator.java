@@ -202,13 +202,8 @@ public abstract class TDReplicator extends Observable {
 
 	public void beginReplicating() {
 		// This is useful for the first run after the replicator starts
-		synchronized (refiller_scheduled) {
-			if (!refiller_scheduled.get()) {
-				refiller_scheduled.set(true);
-				Log.d("ARTOOREFILLER", "Called by ChangeTracker");
-				scheduleRefiller();
-			}
-		}
+		Log.d("ARTOOREFILLER", "Called by ChangeTracker");
+		scheduleRefiller();
 	}
 
 	public void stop() {
@@ -310,7 +305,9 @@ public abstract class TDReplicator extends Observable {
 	}
 
 	public void resetRevisions() {
-		this.db.resetRevisions(this.remote, isPush());
+		if (this.db != null) {
+			this.db.resetRevisions(this.remote, isPush());
+		}
 	}
 
 	/** CHECKPOINT STORAGE: **/
