@@ -55,6 +55,7 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 
 	@Override
 	public void beginReplicating() {
+		super.beginReplicating();
 
 		if (downloadsToInsert == null) {
 			downloadsToInsert = new TDBatcher<List<Object>>(workExecutor, 200,
@@ -160,7 +161,16 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 			}
 		}
 
-		super.beginReplicating();
+		// If we don't have anything in the buffer
+		if (revsToPull == null) {
+			super.beginReplicating();
+		} else {
+			synchronized (revsToPull) {
+				if (revsToPull.size() == 0) {
+					super.beginReplicating();
+				}
+			}
+		}
 	}
 
 	@Override
@@ -199,10 +209,16 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 		// String lastInboxSequence = ((TDPulledRevision) inbox
 		// .get(inbox.size() - 1)).getRemoteSequenceID();
 		int total = getChangesTotal() - inbox.size();
-		if (!db.findMissingRevisions(inbox)) {
+		TDRevisionList removalList;
+		if ((removalList = db.findMissingRevisions(inbox)) == null) {
 			Log.w(TDDatabase.TAG,
 					String.format("%s failed to look up local revs", this));
 			inbox = null;
+		} else {
+			// Remove all the entries we do not need to fetch
+			for (TDRevision rev : removalList) {
+				removeLogForRevision(rev);
+			}
 		}
 		// introducing this to java version since inbox may now be null
 		// everywhere
@@ -221,6 +237,8 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 			// long seq = pendingSequences.addValue(lastInboxSequence);
 			// pendingSequences.removeSequence(seq);
 			// setLastSequence(pendingSequences.getCheckpointedValue());
+			
+			refiller_scheduled.set(false);
 			return;
 		}
 
@@ -259,11 +277,12 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 
 		// If we don't have any remote revisions, refill again
 		if (revsToPull.size() == 0) {
-			Log.d("ARTOOREFILLER", "Called by pullRemoteRevisions");
+			Log.d(getLogTag(), "Called by pullRemoteRevisions");
 			scheduleRefiller(new Date().getTime());
 		} else {
 			// resets the counter
 			// synchronized (refiller_scheduled) {
+			Log.d(getLogTag(), "refiller_scheduled flag set to false");
 			refiller_scheduled.set(false);
 			// }
 		}
@@ -413,7 +432,8 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 				long fakeSequence = rev.getSequence();
 				List<String> history = (List<String>) revAndHistory.get(1);
 				// Insert the revision:
-				TDStatus status = db.forceInsert(rev, history, remote.toExternalForm());
+				TDStatus status = db.forceInsert(rev, history,
+						remote.toExternalForm());
 				if (!status.isSuccessful()) {
 					if (status.getCode() == TDStatus.FORBIDDEN) {
 						Log.i(TDDatabase.TAG, this

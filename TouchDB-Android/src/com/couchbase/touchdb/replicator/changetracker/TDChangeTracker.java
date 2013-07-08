@@ -273,11 +273,14 @@ public class TDChangeTracker implements Runnable {
 			} catch (ClientProtocolException e) {
 				Log.e(TDDatabase.TAG,
 						"ClientProtocolException in change tracker", e);
+				stop();
 			} catch (IOException e) {
 				if (running) {
 					// we get an exception when we're shutting down and have to
 					// close the socket underneath our read, ignore that
 					Log.e(TDDatabase.TAG, "IOException in change tracker", e);
+					// The tracker keeps trying again and again
+					stop();
 				}
 			}
 		}

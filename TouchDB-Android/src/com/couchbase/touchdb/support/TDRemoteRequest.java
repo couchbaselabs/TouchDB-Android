@@ -33,7 +33,6 @@ import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.protocol.ExecutionContext;
 import org.apache.http.protocol.HttpContext;
 
-import android.os.Handler;
 import android.util.Log;
 
 import com.couchbase.touchdb.TDDatabase;

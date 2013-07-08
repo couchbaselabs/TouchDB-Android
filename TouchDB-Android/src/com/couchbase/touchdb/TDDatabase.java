@@ -2441,8 +2441,8 @@ public class TDDatabase extends Observable {
 				url.toExternalForm(),
 				Integer.toString(push ? 1 : 0),
 				""
-						+ (lastUpdated == -1 ? new Date().getTime()
-								: lastUpdated - (60 * 1000 * 5)) };
+						+ ((lastUpdated == -1 ? new Date().getTime()
+								: lastUpdated) - (60 * 1000 * 1)) };
 		Cursor cursor = database
 				.rawQuery(
 						"SELECT docid, revid, deleted, sequence, lastUpdated FROM replicator_log WHERE remote=? AND push=? AND lastUpdated < ? LIMIT 100",
@@ -2634,9 +2634,10 @@ public class TDDatabase extends Observable {
 		return result;
 	}
 
-	public boolean findMissingRevisions(TDRevisionList touchRevs) {
+	public TDRevisionList findMissingRevisions(TDRevisionList touchRevs) {
+		TDRevisionList removalList = new TDRevisionList();
 		if (touchRevs.size() == 0) {
-			return true;
+			return removalList;
 		}
 
 		String quotedDocIds = joinQuoted(touchRevs.getAllDocIds());
@@ -2656,19 +2657,20 @@ public class TDDatabase extends Observable {
 
 				if (rev != null) {
 					touchRevs.remove(rev);
+					removalList.add(rev);
 				}
 
 				cursor.moveToNext();
 			}
 		} catch (SQLException e) {
 			Log.e(TDDatabase.TAG, "Error finding missing revisions", e);
-			return false;
+			return null;
 		} finally {
 			if (cursor != null) {
 				cursor.close();
 			}
 		}
-		return true;
+		return removalList;
 	}
 
 	/*************************************************************************************************/

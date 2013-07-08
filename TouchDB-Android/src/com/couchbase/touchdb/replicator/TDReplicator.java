@@ -202,7 +202,7 @@ public abstract class TDReplicator extends Observable {
 
 	public void beginReplicating() {
 		// This is useful for the first run after the replicator starts
-		Log.d("ARTOOREFILLER", "Called by ChangeTracker");
+		Log.d(getLogTag(), "Called by ChangeTracker");
 		scheduleRefiller();
 	}
 
@@ -451,17 +451,21 @@ public abstract class TDReplicator extends Observable {
 
 		@Override
 		public void run() {
+			Log.d(getLogTag(), isPush() ? "PUSH" : "PULL");
 			TDRevisionList revisions = getPendingRevisions(lastUpdated);
 			if (revisions.size() > 0) {
 				for (TDRevision rev : revisions) {
 					batcher.queueObject(rev);
 				}
+				Log.d(getLogTag(), "Revs count: " + revisions.size()
+						+ ", should I have set the flag?");
 			} else {
 				// The first time we start replication, we will have zero
 				// changes. We will need to kick start replication when
 				// changeTracker receives changes
 				synchronized (refiller_scheduled) {
 					refiller_scheduled.set(false);
+					Log.d(getLogTag(), "I set scheduled to false");
 				}
 			}
 		}
@@ -474,13 +478,17 @@ public abstract class TDReplicator extends Observable {
 	protected void scheduleRefiller(long lastUpdated) {
 		synchronized (refiller_scheduled) {
 			if (!refiller_scheduled.get()) {
+				Log.d(getLogTag(), "started with --" + lastUpdated);
 				refiller_scheduled.set(true);
 				workExecutor.submit(new Refill(lastUpdated));
-				Log.d("ARTOOREFILLER", "started with --" + lastUpdated);
+				Log.d(getLogTag(), "started with --" + lastUpdated);
 			} else {
-				Log.d("ARTOOREFILLER", "Didn't start");
+				Log.d(getLogTag(), "Didn't start");
 			}
 		}
 	}
 
+	protected String getLogTag() {
+		return "ARTOOREFILLER" + (isPush() ? "PUSH" : "PULL");
+	}
 }
