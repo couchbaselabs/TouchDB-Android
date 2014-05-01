@@ -30,14 +30,17 @@ public class TDPusher extends TDReplicator implements Observer {
 	private TDFilterBlock filter;
 
 	public TDPusher(TDDatabase db, URL remote, String access_token,
-			boolean continuous, ScheduledExecutorService workExecutor) {
-		this(db, remote, access_token, continuous, null, workExecutor);
+			Map<String, String> headers, boolean continuous,
+			ScheduledExecutorService workExecutor) {
+		this(db, remote, access_token, headers, continuous, null, workExecutor);
 	}
 
 	public TDPusher(TDDatabase db, URL remote, String access_token,
-			boolean continuous, HttpClientFactory clientFactory,
+			Map<String, String> headers, boolean continuous,
+			HttpClientFactory clientFactory,
 			ScheduledExecutorService workExecutor) {
-		super(db, remote, access_token, continuous, clientFactory, workExecutor);
+		super(db, remote, access_token, headers, continuous, clientFactory,
+				workExecutor);
 		createTarget = false;
 		observing = false;
 	}
@@ -61,28 +64,31 @@ public class TDPusher extends TDReplicator implements Observer {
 			return;
 		}
 		Log.v(TDDatabase.TAG, "Remote db might not exist; creating it...");
-		sendAsyncRequest("PUT", "", null, new TDRemoteRequestCompletionBlock() {
+		sendAsyncRequest("PUT", "", this.headers, null,
+				new TDRemoteRequestCompletionBlock() {
 
-			@Override
-			public void onCompletion(Object result, Throwable e) {
-				if (e != null && e instanceof HttpResponseException
-						&& ((HttpResponseException) e).getStatusCode() != 412) {
-					Log.e(TDDatabase.TAG, "Failed to create remote db", e);
-					error = e;
-					stop();
-				} else {
-					Log.v(TDDatabase.TAG, "Created remote db");
-					createTarget = false;
-					beginReplicating();
-				}
-			}
+					@Override
+					public void onCompletion(Object result, Throwable e) {
+						if (e != null
+								&& e instanceof HttpResponseException
+								&& ((HttpResponseException) e).getStatusCode() != 412) {
+							Log.e(TDDatabase.TAG, "Failed to create remote db",
+									e);
+							error = e;
+							stop();
+						} else {
+							Log.v(TDDatabase.TAG, "Created remote db");
+							createTarget = false;
+							beginReplicating();
+						}
+					}
 
-		});
+				});
 	}
 
 	@Override
 	public void beginReplicating() {
-		
+
 		// If we're still waiting to create the remote db, do nothing now. (This
 		// method will be
 		// re-invoked after that request finishes; see maybeCreateRemoteDB()
@@ -125,7 +131,7 @@ public class TDPusher extends TDReplicator implements Observer {
 			asyncTaskStarted(); // prevents stopped() from being called when
 								// other tasks finish
 		}
-	
+
 		super.beginReplicating();
 	}
 
@@ -150,7 +156,7 @@ public class TDPusher extends TDReplicator implements Observer {
 			Map<String, Object> change = (Map<String, Object>) data;
 			// Skip revisions that originally came from the database I'm syncing
 			// to:
-			String source =  (String) change.get("source");
+			String source = (String) change.get("source");
 			if (source != null && source.equals(remote.toExternalForm())) {
 				return;
 			}
@@ -169,7 +175,7 @@ public class TDPusher extends TDReplicator implements Observer {
 	}
 
 	@Override
-	public void processInbox(final TDRevisionList inbox) {		
+	public void processInbox(final TDRevisionList inbox) {
 		if (inbox.size() == 0) {
 			scheduleRefiller();
 			return;
@@ -196,7 +202,7 @@ public class TDPusher extends TDReplicator implements Observer {
 		// Call _revs_diff on the target db:
 		asyncTaskStarted();
 		sendAsyncRequest("POST", "/_revs_diff?access_token=" + access_token,
-				diffs, new TDRemoteRequestCompletionBlock() {
+				this.headers, diffs, new TDRemoteRequestCompletionBlock() {
 
 					@Override
 					public void onCompletion(Object response, Throwable e) {
@@ -278,7 +284,7 @@ public class TDPusher extends TDReplicator implements Observer {
 							setChangesTotal(getChangesTotal() + numDocsToSend);
 							asyncTaskStarted();
 							sendAsyncRequest("POST",
-									"/_bulk_docs?access_token=" + access_token,
+									"/_bulk_docs?access_token=" + access_token, headers,
 									bulkDocsBody,
 									new TDRemoteRequestCompletionBlock() {
 
@@ -302,8 +308,9 @@ public class TDPusher extends TDReplicator implements Observer {
 											setChangesProcessed(getChangesProcessed()
 													+ numDocsToSend);
 											asyncTaskFinished(1);
-											
-											scheduleRefiller(new Date().getTime());
+
+											scheduleRefiller(new Date()
+													.getTime());
 										}
 									});
 
@@ -318,7 +325,7 @@ public class TDPusher extends TDReplicator implements Observer {
 								removeLogForRevision(rev);
 							}
 							db.endTransaction(true);
-							
+
 							scheduleRefiller(new Date().getTime());
 						}
 						asyncTaskFinished(1);

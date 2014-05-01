@@ -2407,24 +2407,25 @@ public class TDDatabase extends Observable {
 	}
 
 	public TDReplicator getReplicator(URL remote, boolean push,
-			String access_token, boolean continuous,
+			String access_token, Map<String, String> headers, boolean continuous,
 			ScheduledExecutorService workExecutor) {
 		TDReplicator replicator = getReplicator(remote, null, push,
-				access_token, continuous, workExecutor);
+				access_token, headers, continuous, workExecutor);
 		return replicator;
 	}
 
 	public TDReplicator getReplicator(URL remote,
 			HttpClientFactory httpClientFactory, boolean push,
-			String access_token, boolean continuous,
-			ScheduledExecutorService workExecutor) {
+			String access_token, Map<String, String> headers,
+			boolean continuous, ScheduledExecutorService workExecutor) {
 		TDReplicator result = getActiveReplicator(remote, push);
 		if (result != null) {
 			return result;
 		}
-		result = push ? new TDPusher(this, remote, access_token, continuous,
-				httpClientFactory, workExecutor) : new TDPuller(this, remote,
-				access_token, continuous, httpClientFactory, workExecutor);
+		result = push ? new TDPusher(this, remote, access_token, headers,
+				continuous, httpClientFactory, workExecutor) : new TDPuller(
+				this, remote, access_token, headers, continuous,
+				httpClientFactory, workExecutor);
 
 		if (activeReplicators == null) {
 			activeReplicators = new ArrayList<TDReplicator>();

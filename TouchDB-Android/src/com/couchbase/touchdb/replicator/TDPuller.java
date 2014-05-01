@@ -43,14 +43,17 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 	protected int httpConnectionCount;
 
 	public TDPuller(TDDatabase db, URL remote, String access_token,
-			boolean continuous, ScheduledExecutorService workExecutor) {
-		this(db, remote, access_token, continuous, null, workExecutor);
+			Map<String, String> headers, boolean continuous,
+			ScheduledExecutorService workExecutor) {
+		this(db, remote, access_token, headers, continuous, null, workExecutor);
 	}
 
 	public TDPuller(TDDatabase db, URL remote, String access_token,
-			boolean continuous, HttpClientFactory clientFactory,
+			Map<String, String> headers, boolean continuous,
+			HttpClientFactory clientFactory,
 			ScheduledExecutorService workExecutor) {
-		super(db, remote, access_token, continuous, clientFactory, workExecutor);
+		super(db, remote, access_token, headers, continuous, clientFactory,
+				workExecutor);
 	}
 
 	@Override
@@ -237,7 +240,7 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 			// long seq = pendingSequences.addValue(lastInboxSequence);
 			// pendingSequences.removeSequence(seq);
 			// setLastSequence(pendingSequences.getCheckpointedValue());
-			
+
 			refiller_scheduled.set(false);
 			return;
 		}
@@ -340,7 +343,7 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 		// create a final version of this variable for the log statement inside
 		// FIXME find a way to avoid this
 		final String pathInside = path.toString();
-		sendAsyncRequest("GET", pathInside, null,
+		sendAsyncRequest("GET", pathInside, headers, null,
 				new TDRemoteRequestCompletionBlock() {
 
 					@Override

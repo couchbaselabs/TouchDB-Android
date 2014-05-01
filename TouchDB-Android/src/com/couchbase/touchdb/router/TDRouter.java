@@ -536,8 +536,26 @@ public class TDRouter implements Observer {
 				.booleanValue());
 		Boolean cancelBoolean = (Boolean) body.get("cancel");
 		boolean cancel = (cancelBoolean != null && cancelBoolean.booleanValue());
-		String access_token = (String) ((Map<String, Object>) body
-				.get("query_params")).get("access_token");
+
+		Map<String, Object> query_params = (Map<String, Object>) body
+				.get("query_params");
+		String access_token = (String) query_params.get("access_token");
+
+		// All query params starting with header: need to move into headers
+		Map<String, String> headers = new HashMap<String, String>();
+		for (String key : query_params.keySet()) {
+			if (key.startsWith("header:")) {
+				String value = String.valueOf(query_params.get(key));
+				key = key.replaceFirst("header:", "");
+				headers.put(key, value);
+			}
+		}
+
+		// Remove any headers that are present in query_params. We don't remove
+		// simultaneously because of concurrent exception
+		for (String key : headers.keySet()) {
+			query_params.remove("header:" + key);
+		}
 
 		// Map the 'source' and 'target' JSON params to a local database and
 		// remote URL:
@@ -579,7 +597,7 @@ public class TDRouter implements Observer {
 			// Start replication:
 			TDReplicator repl = db.getReplicator(remote,
 					server.getDefaultHttpClientFactory(), push, access_token,
-					continuous, server.getWorkExecutor());
+					headers, continuous, server.getWorkExecutor());
 			if (repl == null) {
 				return new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
 			}

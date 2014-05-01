@@ -64,18 +64,23 @@ public abstract class TDReplicator extends Observable {
 
 	private ExecutorService remoteRequestExecutor;
 
+	protected Map<String, String> headers;
+
 	public TDReplicator(TDDatabase db, URL remote, String access_token,
-			boolean continuous, ScheduledExecutorService workExecutor) {
-		this(db, remote, access_token, continuous, null, workExecutor);
+			Map<String, String> headers, boolean continuous,
+			ScheduledExecutorService workExecutor) {
+		this(db, remote, access_token, headers, continuous, null, workExecutor);
 	}
 
 	public TDReplicator(TDDatabase db, URL remote, String access_token,
-			boolean continuous, HttpClientFactory clientFacotry,
+			Map<String, String> headers, boolean continuous,
+			HttpClientFactory clientFacotry,
 			ScheduledExecutorService workExecutor) {
 
 		this.db = db;
 		this.remote = remote;
 		this.access_token = access_token;
+		this.headers = headers;
 		this.continuous = continuous;
 		this.workExecutor = workExecutor;
 
@@ -264,14 +269,15 @@ public abstract class TDReplicator extends Observable {
 	}
 
 	public void sendAsyncRequest(String method, String relativePath,
-			Object body, TDRemoteRequestCompletionBlock onCompletion) {
+			Map<String, String> headers, Object body,
+			TDRemoteRequestCompletionBlock onCompletion) {
 		// Log.v(TDDatabase.TAG, String.format("%s: %s .%s", toString(), method,
 		// relativePath));
 		String urlStr = remote.toExternalForm() + relativePath;
 		try {
 			URL url = new URL(urlStr);
 			TDRemoteRequest request = new TDRemoteRequest(workExecutor,
-					clientFactory, method, url, body, onCompletion);
+					clientFactory, method, url, headers, body, onCompletion);
 			remoteRequestExecutor.execute(request);
 		} catch (MalformedURLException e) {
 			Log.e(TDDatabase.TAG, "Malformed URL for async request", e);
@@ -341,8 +347,8 @@ public abstract class TDReplicator extends Observable {
 		}
 
 		asyncTaskStarted();
-		sendAsyncRequest("GET", "/_local/" + remoteCheckpointDocID(), null,
-				new TDRemoteRequestCompletionBlock() {
+		sendAsyncRequest("GET", "/_local/" + remoteCheckpointDocID(),
+				this.headers, null, new TDRemoteRequestCompletionBlock() {
 
 					@Override
 					public void onCompletion(Object result, Throwable e) {
@@ -411,8 +417,8 @@ public abstract class TDReplicator extends Observable {
 			return;
 		}
 		savingCheckpoint = true;
-		sendAsyncRequest("PUT", "/_local/" + remoteCheckpointDocID, body,
-				new TDRemoteRequestCompletionBlock() {
+		sendAsyncRequest("PUT", "/_local/" + remoteCheckpointDocID,
+				this.headers, body, new TDRemoteRequestCompletionBlock() {
 
 					@Override
 					public void onCompletion(Object result, Throwable e) {
