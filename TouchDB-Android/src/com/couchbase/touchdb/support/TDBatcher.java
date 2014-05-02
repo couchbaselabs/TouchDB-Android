@@ -2,17 +2,13 @@ package com.couchbase.touchdb.support;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Future;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
-import android.os.Handler;
 import android.util.Log;
 
 import com.couchbase.touchdb.TDDatabase;
-import com.couchbase.touchdb.TDRevision;
 
 /**
  * Utility that queues up objects until the queue fills up or a time interval elapses,
@@ -48,7 +44,7 @@ public class TDBatcher<T> {
         this.processor = processor;
     }
 
-    public void processNow() {
+	public void processNow() {
         List<T> toProcess = null;
         synchronized(this) {
             if(inbox == null || inbox.size() == 0) {
